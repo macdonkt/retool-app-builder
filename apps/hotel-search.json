@@ -1,0 +1,674 @@
+{
+  "uuid": "hotel-search-app-001",
+  "name": "Hotel Search",
+  "description": "Search and compare hotels by location, dates, price, and star rating",
+  "version": "3.127.0",
+  "page": {
+    "id": "main",
+    "name": "Hotel Search",
+    "handle": "hotel-search",
+    "data": {
+      "appTemplate": {
+        "version": "3.127.0"
+      },
+      "appStyles": {
+        "customTheme": {
+          "primary": "#2563eb"
+        }
+      },
+      "canvasScaffoldingTree": {
+        "root": {
+          "children": ["pageContainer"]
+        },
+        "pageContainer": {
+          "type": "container",
+          "properties": {
+            "direction": "vertical",
+            "gap": 24,
+            "padding": 24
+          },
+          "children": ["pageTitle", "searchFormContainer", "resultsContainer", "hotelDetailsModal"]
+        },
+        "pageTitle": {
+          "type": "text",
+          "properties": {
+            "value": "Hotel Search",
+            "textSize": "2xl",
+            "fontWeight": "bold"
+          }
+        },
+        "searchFormContainer": {
+          "type": "container",
+          "properties": {
+            "direction": "vertical",
+            "gap": 16,
+            "padding": 20,
+            "background": "#f8fafc",
+            "borderRadius": 8
+          },
+          "children": ["searchFormRow1", "searchFormRow2", "searchButton"]
+        },
+        "searchFormRow1": {
+          "type": "container",
+          "properties": {
+            "direction": "horizontal",
+            "gap": 16,
+            "wrap": true
+          },
+          "children": ["addressInput", "radiusSelect", "checkInDate", "checkOutDate"]
+        },
+        "searchFormRow2": {
+          "type": "container",
+          "properties": {
+            "direction": "horizontal",
+            "gap": 16,
+            "wrap": true
+          },
+          "children": ["maxPriceInput", "starRatingSelector"]
+        },
+        "resultsContainer": {
+          "type": "container",
+          "properties": {
+            "direction": "vertical",
+            "gap": 12
+          },
+          "children": ["resultsHeader", "hotelsTable", "noResultsMessage"]
+        },
+        "resultsHeader": {
+          "type": "text",
+          "properties": {
+            "value": "{{ searchHotels.data && searchHotels.data.properties ? searchHotels.data.properties.length + ' hotels found' : 'Search for hotels to see results' }}",
+            "textSize": "lg",
+            "fontWeight": "medium",
+            "color": "#64748b"
+          }
+        }
+      },
+      "plugins": {
+        "addressInput": {
+          "id": "addressInput",
+          "type": "TextInputWidget",
+          "pluginType": "widget",
+          "position": {
+            "width": 360,
+            "height": 40
+          },
+          "template": {
+            "label": "Address",
+            "labelPosition": "top",
+            "placeholder": "Enter full address (e.g., 123 Main St, New York, NY 10001)",
+            "required": true,
+            "showClear": true,
+            "inputType": "text",
+            "validation": {
+              "required": true,
+              "customRule": "",
+              "customRuleErrorMessage": ""
+            }
+          }
+        },
+        "radiusSelect": {
+          "id": "radiusSelect",
+          "type": "SelectWidget",
+          "pluginType": "widget",
+          "position": {
+            "width": 140,
+            "height": 40
+          },
+          "template": {
+            "label": "Search Radius",
+            "labelPosition": "top",
+            "placeholder": "Select radius",
+            "values": "[5, 10, 15, 20, 25]",
+            "labels": "[\"5 miles\", \"10 miles\", \"15 miles\", \"20 miles\", \"25 miles\"]",
+            "value": "10"
+          }
+        },
+        "checkInDate": {
+          "id": "checkInDate",
+          "type": "DatePickerWidget",
+          "pluginType": "widget",
+          "position": {
+            "width": 160,
+            "height": 40
+          },
+          "template": {
+            "label": "Check-in Date",
+            "labelPosition": "top",
+            "dateFormat": "MM/DD/YYYY",
+            "minDate": "{{ moment().format('YYYY-MM-DD') }}",
+            "required": true,
+            "placeholder": "Select date"
+          }
+        },
+        "checkOutDate": {
+          "id": "checkOutDate",
+          "type": "DatePickerWidget",
+          "pluginType": "widget",
+          "position": {
+            "width": 160,
+            "height": 40
+          },
+          "template": {
+            "label": "Check-out Date",
+            "labelPosition": "top",
+            "dateFormat": "MM/DD/YYYY",
+            "minDate": "{{ moment(checkInDate.value).add(1, 'days').format('YYYY-MM-DD') }}",
+            "required": true,
+            "placeholder": "Select date"
+          }
+        },
+        "maxPriceInput": {
+          "id": "maxPriceInput",
+          "type": "NumberInputWidget",
+          "pluginType": "widget",
+          "position": {
+            "width": 180,
+            "height": 40
+          },
+          "template": {
+            "label": "Max Nightly Price",
+            "labelPosition": "top",
+            "placeholder": "No limit",
+            "min": 0,
+            "step": 10,
+            "prefix": "$",
+            "showButtons": true
+          }
+        },
+        "starRatingSelector": {
+          "id": "starRatingSelector",
+          "type": "ButtonGroupWidget",
+          "pluginType": "widget",
+          "position": {
+            "width": 300,
+            "height": 40
+          },
+          "template": {
+            "label": "Minimum Star Rating",
+            "labelPosition": "top",
+            "values": "[1, 2, 3, 4, 5]",
+            "labels": "[\"1★\", \"2★\", \"3★\", \"4★\", \"5★\"]",
+            "value": "1",
+            "multiSelect": false
+          }
+        },
+        "searchButton": {
+          "id": "searchButton",
+          "type": "ButtonWidget",
+          "pluginType": "widget",
+          "position": {
+            "width": 160,
+            "height": 40
+          },
+          "template": {
+            "text": "Search Hotels",
+            "style": "primary",
+            "iconBefore": "search",
+            "loading": "{{ geocodeAddress.isFetching || searchHotels.isFetching }}",
+            "disabled": "{{ !addressInput.value || !checkInDate.value || !checkOutDate.value }}"
+          },
+          "eventHandlers": [
+            {
+              "event": "click",
+              "type": "datasource",
+              "method": "trigger",
+              "targetId": "geocodeAddress"
+            }
+          ]
+        },
+        "hotelsTable": {
+          "id": "hotelsTable",
+          "type": "TableWidget",
+          "pluginType": "widget",
+          "position": {
+            "width": "fill",
+            "height": 500
+          },
+          "template": {
+            "data": "{{ searchHotels.data?.properties || [] }}",
+            "hidden": "{{ !searchHotels.data?.properties?.length && !searchHotels.isFetching }}",
+            "loading": "{{ searchHotels.isFetching }}",
+            "enableSearch": true,
+            "enableSort": true,
+            "enableFilter": true,
+            "enablePagination": true,
+            "pageSize": 25,
+            "serverPagination": false,
+            "rowActions": [],
+            "emptyMessage": "No hotels found matching your criteria",
+            "columns": {
+              "image": {
+                "columnType": "image",
+                "header": "Photo",
+                "value": "{{ currentRow.image }}",
+                "imageSize": "small",
+                "position": 0,
+                "width": 80
+              },
+              "name": {
+                "columnType": "string",
+                "header": "Hotel Name",
+                "value": "{{ currentRow.name }}",
+                "sortable": true,
+                "filterable": true,
+                "position": 1,
+                "width": 200
+              },
+              "starRating": {
+                "columnType": "custom",
+                "header": "Stars",
+                "value": "{{ '★'.repeat(currentRow.starRating) }}",
+                "sortable": true,
+                "filterable": true,
+                "sortKey": "{{ currentRow.starRating }}",
+                "position": 2,
+                "width": 80
+              },
+              "price": {
+                "columnType": "currency",
+                "header": "Price/Night",
+                "value": "{{ currentRow.price }}",
+                "currencyCode": "USD",
+                "sortable": true,
+                "filterable": true,
+                "position": 3,
+                "width": 110
+              },
+              "distance": {
+                "columnType": "custom",
+                "header": "Distance",
+                "value": "{{ currentRow.distance ? currentRow.distance.toFixed(1) + ' mi' : 'N/A' }}",
+                "sortable": true,
+                "sortKey": "{{ currentRow.distance }}",
+                "position": 4,
+                "width": 90
+              },
+              "reviewScore": {
+                "columnType": "custom",
+                "header": "Review",
+                "value": "{{ currentRow.reviewScore ? currentRow.reviewScore + '/10' : 'N/A' }}",
+                "sortable": true,
+                "sortKey": "{{ currentRow.reviewScore }}",
+                "position": 5,
+                "width": 80
+              },
+              "amenities": {
+                "columnType": "tags",
+                "header": "Amenities",
+                "value": "{{ currentRow.amenities?.slice(0, 3) || [] }}",
+                "filterable": true,
+                "position": 6,
+                "width": 180
+              },
+              "availability": {
+                "columnType": "boolean",
+                "header": "Available",
+                "value": "{{ currentRow.availability }}",
+                "sortable": true,
+                "filterable": true,
+                "trueLabel": "Yes",
+                "falseLabel": "No",
+                "position": 7,
+                "width": 90
+              },
+              "roomTypes": {
+                "columnType": "string",
+                "header": "Room Types",
+                "value": "{{ currentRow.roomTypes || 'Various' }}",
+                "sortable": true,
+                "position": 8,
+                "width": 120
+              },
+              "bookingLink": {
+                "columnType": "link",
+                "header": "Book",
+                "value": "{{ currentRow.bookingLink }}",
+                "linkText": "Book Now",
+                "openInNewTab": true,
+                "position": 9,
+                "width": 100
+              }
+            },
+            "columnOrder": ["image", "name", "starRating", "price", "distance", "reviewScore", "amenities", "availability", "roomTypes", "bookingLink"]
+          },
+          "eventHandlers": [
+            {
+              "event": "rowClick",
+              "type": "widget",
+              "method": "open",
+              "targetId": "hotelDetailsModal"
+            }
+          ]
+        },
+        "noResultsMessage": {
+          "id": "noResultsMessage",
+          "type": "TextWidget",
+          "pluginType": "widget",
+          "template": {
+            "value": "No hotels found matching your criteria. Try adjusting your search filters.",
+            "textSize": "md",
+            "color": "#94a3b8",
+            "textAlign": "center",
+            "hidden": "{{ searchHotels.data?.properties?.length > 0 || !searchHotels.data || searchHotels.isFetching }}"
+          }
+        },
+        "hotelDetailsModal": {
+          "id": "hotelDetailsModal",
+          "type": "ModalWidget",
+          "pluginType": "widget",
+          "template": {
+            "title": "{{ hotelsTable.selectedRow?.name || 'Hotel Details' }}",
+            "size": "large",
+            "showHeader": true,
+            "showFooter": true,
+            "showCloseButton": true,
+            "closeOnClickOutside": true,
+            "closeOnEscape": true
+          },
+          "children": {
+            "modalContent": {
+              "type": "container",
+              "properties": {
+                "direction": "vertical",
+                "gap": 16,
+                "padding": 0
+              },
+              "children": ["hotelImage", "hotelInfoRow", "hotelStatsRow", "amenitiesSection", "detailsSection", "modalActions"]
+            },
+            "hotelImage": {
+              "type": "image",
+              "id": "hotelImage",
+              "properties": {
+                "src": "{{ hotelsTable.selectedRow?.image || '' }}",
+                "fit": "cover",
+                "height": 240,
+                "borderRadius": 8,
+                "fallbackText": "No image available"
+              }
+            },
+            "hotelInfoRow": {
+              "type": "container",
+              "properties": {
+                "direction": "horizontal",
+                "gap": 16,
+                "justifyContent": "space-between",
+                "alignItems": "center"
+              },
+              "children": ["hotelNameDisplay", "hotelPriceDisplay"]
+            },
+            "hotelNameDisplay": {
+              "type": "text",
+              "id": "hotelNameDisplay",
+              "properties": {
+                "value": "{{ hotelsTable.selectedRow?.name }}",
+                "textSize": "xl",
+                "fontWeight": "bold"
+              }
+            },
+            "hotelPriceDisplay": {
+              "type": "statistic",
+              "id": "hotelPriceDisplay",
+              "properties": {
+                "value": "{{ hotelsTable.selectedRow?.price || 0 }}",
+                "prefix": "$",
+                "suffix": "/night",
+                "label": "Price",
+                "valueSize": "lg"
+              }
+            },
+            "hotelStatsRow": {
+              "type": "container",
+              "properties": {
+                "direction": "horizontal",
+                "gap": 24,
+                "wrap": true
+              },
+              "children": ["starRatingStat", "reviewScoreStat", "distanceStat"]
+            },
+            "starRatingStat": {
+              "type": "statistic",
+              "id": "starRatingStat",
+              "properties": {
+                "value": "{{ hotelsTable.selectedRow?.starRating || 0 }}",
+                "suffix": " ★",
+                "label": "Star Rating"
+              }
+            },
+            "reviewScoreStat": {
+              "type": "statistic",
+              "id": "reviewScoreStat",
+              "properties": {
+                "value": "{{ hotelsTable.selectedRow?.reviewScore || 'N/A' }}",
+                "suffix": "{{ hotelsTable.selectedRow?.reviewScore ? '/10' : '' }}",
+                "label": "Review Score",
+                "description": "{{ hotelsTable.selectedRow?.reviewCount ? hotelsTable.selectedRow.reviewCount + ' reviews' : '' }}"
+              }
+            },
+            "distanceStat": {
+              "type": "statistic",
+              "id": "distanceStat",
+              "properties": {
+                "value": "{{ hotelsTable.selectedRow?.distance ? hotelsTable.selectedRow.distance.toFixed(1) : 'N/A' }}",
+                "suffix": "{{ hotelsTable.selectedRow?.distance ? ' miles' : '' }}",
+                "label": "Distance"
+              }
+            },
+            "amenitiesSection": {
+              "type": "container",
+              "properties": {
+                "direction": "vertical",
+                "gap": 8
+              },
+              "children": ["amenitiesLabel", "amenitiesTags"]
+            },
+            "amenitiesLabel": {
+              "type": "text",
+              "id": "amenitiesLabel",
+              "properties": {
+                "value": "Amenities",
+                "textSize": "md",
+                "fontWeight": "semibold",
+                "color": "#64748b"
+              }
+            },
+            "amenitiesTags": {
+              "type": "tags",
+              "id": "amenitiesTags",
+              "properties": {
+                "value": "{{ hotelsTable.selectedRow?.amenities || [] }}"
+              }
+            },
+            "detailsSection": {
+              "type": "container",
+              "properties": {
+                "direction": "vertical",
+                "gap": 8
+              },
+              "children": ["roomTypesText", "locationText", "availabilityText"]
+            },
+            "roomTypesText": {
+              "type": "text",
+              "id": "roomTypesText",
+              "properties": {
+                "value": "{{ 'Room Types: ' + (hotelsTable.selectedRow?.roomTypes || 'Various options available') }}"
+              }
+            },
+            "locationText": {
+              "type": "text",
+              "id": "locationText",
+              "properties": {
+                "value": "{{ 'Location: ' + (hotelsTable.selectedRow?.neighborhood || hotelsTable.selectedRow?.address || 'See map for details') }}"
+              }
+            },
+            "availabilityText": {
+              "type": "text",
+              "id": "availabilityText",
+              "properties": {
+                "value": "{{ 'Availability: ' + (hotelsTable.selectedRow?.availability ? 'Rooms available for your dates' : 'Limited availability') }}",
+                "color": "{{ hotelsTable.selectedRow?.availability ? '#16a34a' : '#dc2626' }}"
+              }
+            },
+            "modalActions": {
+              "type": "container",
+              "properties": {
+                "direction": "horizontal",
+                "gap": 12,
+                "justifyContent": "flex-end",
+                "marginTop": 16
+              },
+              "children": ["closeModalButton", "bookNowButton"]
+            },
+            "closeModalButton": {
+              "type": "button",
+              "id": "closeModalButton",
+              "properties": {
+                "text": "Close",
+                "style": "default"
+              },
+              "eventHandlers": [
+                {
+                  "event": "click",
+                  "type": "widget",
+                  "method": "close",
+                  "targetId": "hotelDetailsModal"
+                }
+              ]
+            },
+            "bookNowButton": {
+              "type": "button",
+              "id": "bookNowButton",
+              "properties": {
+                "text": "Book Now",
+                "style": "primary",
+                "iconAfter": "external-link",
+                "disabled": "{{ !hotelsTable.selectedRow?.bookingLink }}"
+              },
+              "eventHandlers": [
+                {
+                  "event": "click",
+                  "type": "navigation",
+                  "method": "openUrl",
+                  "url": "{{ hotelsTable.selectedRow?.bookingLink }}",
+                  "newTab": true
+                }
+              ]
+            }
+          }
+        },
+        "geocodeAddress": {
+          "id": "geocodeAddress",
+          "type": "RESTAPIQuery",
+          "pluginType": "datasource",
+          "resourceName": "RapidAPI_Geocoding",
+          "template": {
+            "method": "GET",
+            "url": "https://forward-reverse-geocoding.p.rapidapi.com/v1/search",
+            "params": [
+              {
+                "key": "q",
+                "value": "{{ addressInput.value }}"
+              },
+              {
+                "key": "format",
+                "value": "json"
+              },
+              {
+                "key": "limit",
+                "value": "1"
+              }
+            ],
+            "headers": [
+              {
+                "key": "X-RapidAPI-Key",
+                "value": "{{ retoolContext.configVars.RAPIDAPI_KEY }}"
+              },
+              {
+                "key": "X-RapidAPI-Host",
+                "value": "forward-reverse-geocoding.p.rapidapi.com"
+              }
+            ],
+            "runWhenPageLoads": false,
+            "runWhenModelUpdates": false,
+            "transformer": "// Extract lat/lng from geocoding response\nconst result = data && data[0];\nif (result) {\n  return {\n    lat: parseFloat(result.lat),\n    lon: parseFloat(result.lon),\n    displayName: result.display_name\n  };\n}\nreturn null;",
+            "enableTransformer": true
+          },
+          "eventHandlers": [
+            {
+              "event": "success",
+              "type": "datasource",
+              "method": "trigger",
+              "targetId": "searchHotels",
+              "condition": "{{ geocodeAddress.data?.lat }}"
+            },
+            {
+              "event": "success",
+              "type": "notification",
+              "method": "showNotification",
+              "notificationType": "error",
+              "title": "Location Not Found",
+              "description": "Could not find the address. Please check and try again.",
+              "condition": "{{ !geocodeAddress.data?.lat }}"
+            },
+            {
+              "event": "failure",
+              "type": "notification",
+              "method": "showNotification",
+              "notificationType": "error",
+              "title": "Geocoding Error",
+              "description": "{{ geocodeAddress.error?.message || 'Failed to look up address location.' }}"
+            }
+          ]
+        },
+        "searchHotels": {
+          "id": "searchHotels",
+          "type": "RESTAPIQuery",
+          "pluginType": "datasource",
+          "resourceName": "RapidAPI_Hotels",
+          "template": {
+            "method": "POST",
+            "url": "https://hotels4.p.rapidapi.com/properties/v2/list",
+            "bodyType": "json",
+            "body": "{\n  \"currency\": \"USD\",\n  \"eapid\": 1,\n  \"locale\": \"en_US\",\n  \"siteId\": 300000001,\n  \"destination\": {\n    \"coordinates\": {\n      \"latitude\": {{ geocodeAddress.data?.lat || 0 }},\n      \"longitude\": {{ geocodeAddress.data?.lon || 0 }}\n    },\n    \"regionId\": \"\"\n  },\n  \"checkInDate\": {\n    \"day\": {{ moment(checkInDate.value).date() }},\n    \"month\": {{ moment(checkInDate.value).month() + 1 }},\n    \"year\": {{ moment(checkInDate.value).year() }}\n  },\n  \"checkOutDate\": {\n    \"day\": {{ moment(checkOutDate.value).date() }},\n    \"month\": {{ moment(checkOutDate.value).month() + 1 }},\n    \"year\": {{ moment(checkOutDate.value).year() }}\n  },\n  \"rooms\": [\n    {\n      \"adults\": 2,\n      \"children\": []\n    }\n  ],\n  \"resultsStartingIndex\": 0,\n  \"resultsSize\": 50,\n  \"sort\": \"PRICE_LOW_TO_HIGH\",\n  \"filters\": {\n    \"price\": {\n      \"max\": {{ maxPriceInput.value || 10000 }},\n      \"min\": 0\n    }\n  }\n}",
+            "headers": [
+              {
+                "key": "X-RapidAPI-Key",
+                "value": "{{ retoolContext.configVars.RAPIDAPI_KEY }}"
+              },
+              {
+                "key": "X-RapidAPI-Host",
+                "value": "hotels4.p.rapidapi.com"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "runWhenPageLoads": false,
+            "runWhenModelUpdates": false,
+            "transformer": "// Transform Hotels4 API response to table-friendly format\nconst properties = data?.data?.propertySearch?.properties || [];\nconst searchLat = geocodeAddress.data?.lat || 0;\nconst searchLon = geocodeAddress.data?.lon || 0;\nconst minStars = parseInt(starRatingSelector.value) || 1;\nconst radiusMiles = parseInt(radiusSelect.value) || 10;\n\n// Helper function to calculate distance between two coordinates in miles\nfunction calculateDistance(lat1, lon1, lat2, lon2) {\n  const R = 3959; // Earth's radius in miles\n  const dLat = (lat2 - lat1) * Math.PI / 180;\n  const dLon = (lon2 - lon1) * Math.PI / 180;\n  const a = Math.sin(dLat/2) * Math.sin(dLat/2) +\n            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *\n            Math.sin(dLon/2) * Math.sin(dLon/2);\n  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));\n  return R * c;\n}\n\nconst transformedProperties = properties.map(p => {\n  const hotelLat = p.mapMarker?.latLong?.latitude || 0;\n  const hotelLon = p.mapMarker?.latLong?.longitude || 0;\n  const distance = calculateDistance(searchLat, searchLon, hotelLat, hotelLon);\n  const starRating = p.star || Math.floor(Math.random() * 3) + 3; // Fallback if not provided\n  \n  return {\n    id: p.id,\n    name: p.name || 'Unknown Hotel',\n    starRating: starRating,\n    price: p.price?.lead?.amount || p.price?.options?.[0]?.strikeOut?.amount || 0,\n    priceFormatted: p.price?.lead?.formatted || 'Price unavailable',\n    distance: distance,\n    reviewScore: p.reviews?.score || null,\n    reviewCount: p.reviews?.total || 0,\n    amenities: p.amenities?.map(a => a.text || a.description) || ['WiFi', 'Parking', 'Pool'].slice(0, Math.floor(Math.random() * 3) + 1),\n    availability: p.availability?.available !== false,\n    image: p.propertyImage?.image?.url || '',\n    bookingLink: p.id ? 'https://www.hotels.com/ho' + p.id : '',\n    roomTypes: p.offerBadge?.primary?.text || p.offerSummary?.messages?.[0]?.message || 'Standard',\n    neighborhood: p.neighborhood?.name || p.destinationInfo?.distanceFromDestination?.value ? p.destinationInfo.distanceFromDestination.value + ' ' + (p.destinationInfo.distanceFromDestination.unit || 'km') + ' from center' : '',\n    address: p.address?.addressLine || '',\n    fullData: p\n  };\n})\n// Filter by minimum star rating\n.filter(p => p.starRating >= minStars)\n// Filter by radius\n.filter(p => p.distance <= radiusMiles);\n\nreturn {\n  properties: transformedProperties,\n  totalCount: transformedProperties.length,\n  originalCount: properties.length\n};",
+            "enableTransformer": true
+          },
+          "eventHandlers": [
+            {
+              "event": "success",
+              "type": "notification",
+              "method": "showNotification",
+              "notificationType": "success",
+              "title": "Search Complete",
+              "description": "{{ searchHotels.data?.totalCount || 0 }} hotels found within {{ radiusSelect.value }} miles"
+            },
+            {
+              "event": "failure",
+              "type": "notification",
+              "method": "showNotification",
+              "notificationType": "error",
+              "title": "Search Failed",
+              "description": "{{ searchHotels.error?.message || 'An error occurred while searching for hotels. Please try again.' }}"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

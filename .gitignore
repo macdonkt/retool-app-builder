@@ -1,0 +1,25 @@
+# Environment and secrets
+.env
+.env.local
+*.key
+*credentials*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Temporary files
+*.tmp
+*.temp
+
+# Node modules (if any)
+node_modules/
+
+# Claude plans (local only)
+.claude/
