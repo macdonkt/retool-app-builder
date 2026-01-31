@@ -1099,6 +1099,102 @@ disabled: "{{ form1.data.status === 'locked' }}"
 
 ---
 
+## JavaScript Query Gotchas
+
+### CRITICAL: `query.trigger()` Returns Data Directly
+
+When using `await query.trigger()` inside a JavaScript query, the data is returned **directly from the trigger call**, NOT stored in `query.data` immediately.
+
+#### The Problem
+
+```javascript
+// ❌ WRONG - query.data is null during execution
+await myQuery.trigger();
+console.log(myQuery.data);  // null!
+const result = myQuery.data.results;  // Error!
+```
+
+The query executes successfully, but `myQuery.data` remains `null` until after the entire JavaScript function completes. This is a common source of "no results" bugs.
+
+#### The Solution
+
+```javascript
+// ✅ CORRECT - capture the return value from trigger()
+const result = await myQuery.trigger();
+console.log(result);  // { results: [...], status: "OK" }
+const items = result.results;  // Works!
+```
+
+#### Complete Example: Chained API Calls
+
+```javascript
+// Geocode an address, then search for hotels at those coordinates
+
+// Step 1: Trigger geocoding and capture result
+const geocodeResult = await geocodeAddress.trigger();
+
+// Step 2: Validate the result (not geocodeAddress.data!)
+if (geocodeResult && geocodeResult.status === 'OK' && geocodeResult.results?.length > 0) {
+  const lat = geocodeResult.results[0].geometry.location.lat;
+  const lng = geocodeResult.results[0].geometry.location.lng;
+
+  console.log('Coordinates:', lat, lng);
+
+  // Step 3: Trigger hotel search and capture its result
+  const hotelsResult = await searchHotels.trigger();
+
+  // Step 4: Process hotels (not searchHotels.data!)
+  const hotelCount = hotelsResult?.result?.length || 0;
+
+  if (hotelCount > 0) {
+    utils.showNotification({
+      title: 'Success',
+      description: `Found ${hotelCount} hotels`,
+      notificationType: 'success'
+    });
+  }
+} else {
+  utils.showNotification({
+    title: 'Geocoding failed',
+    description: 'Could not find location',
+    notificationType: 'error'
+  });
+}
+```
+
+#### When `.data` DOES Work
+
+The `.data` property works in these contexts:
+
+1. **Template bindings** (outside JavaScript queries):
+   ```javascript
+   // In a component's data property - this works
+   {{ myQuery.data }}
+   {{ myQuery.data.results[0].name }}
+   ```
+
+2. **After the JavaScript query completes** - other queries/components can read `.data`
+
+3. **In event handlers on the query itself**:
+   ```javascript
+   // In query success event handler - this works
+   utils.showNotification({ description: myQuery.data.message })
+   ```
+
+#### Debugging Tip
+
+Always add console.log to verify what you're getting:
+
+```javascript
+const result = await myQuery.trigger();
+console.log('Direct result:', JSON.stringify(result));
+console.log('Via .data:', JSON.stringify(myQuery.data));  // Likely null
+```
+
+Check Retool's built-in console (not browser console) to see these logs.
+
+---
+
 ## Notifications
 
 ### Show Notification
@@ -1154,6 +1250,281 @@ utils.showNotification({
 
 ---
 
+## Transit Structure Validation
+
+### Plugin Footer Requirements
+
+**CRITICAL**: Every plugin (query, widget, screen, frame) MUST have a complete footer with fields `^1A` through `^1L`. Missing footer fields cause subsequent plugins to be nested incorrectly and not recognized by Retool on import.
+
+#### Required Footer Fields
+
+```
+"^1A",null,"^1B",null,"^1C",null,"^1D",null,"^1E",null,"^1F","","^7","~m<timestamp>","^1G","~m<timestamp>","^1H","","^1I",null,"^1J","<pageId>","^1K",null,"^1L",null
+```
+
+Key fields:
+| Field | Purpose |
+|-------|---------|
+| `^1A` - `^1I` | Internal metadata (usually null or empty) |
+| `^1J` | **Page assignment** (e.g., `"page1"`, `"favorites"`) |
+| `^1K`, `^1L` | Additional metadata (usually null) |
+| `^7`, `^1G` | Timestamps (`~m` prefix + milliseconds) |
+
+#### Plugin Closing Pattern
+
+Each plugin definition should end with this bracket pattern:
+
+```
+...,"^1J","page1","^1K",null,"^1L",null]]],
+```
+
+**Correct**: `]]],"` (3 closing brackets + comma) before the next sibling plugin
+**Wrong**: `]]]]]],"` (6+ brackets) indicates missing footer fields
+
+### Common Structural Bugs
+
+#### 1. Missing Footer After Events
+
+**Symptom**: Queries/widgets defined after the affected plugin are not visible in Retool after import.
+
+**Cause**: When a plugin has an `events` array, the footer fields must come AFTER the events array closes. If the footer is omitted, subsequent plugins are nested at the wrong level.
+
+**Example of bug**:
+```
+// WRONG - missing footer after events
+"events",[["^1M",[...]]]]]]],"nextQuery"
+                       ↑
+                       Too many closing brackets, no footer
+```
+
+**Correct structure**:
+```
+// CORRECT - footer fields after events, then proper closing
+"events",[["^1M",[...]]]]]]],"^1A",null,...,"^1J","page1","^1K",null,"^1L",null]]],"nextQuery"
+```
+
+#### 2. Bracket Count Mismatch
+
+**How to verify**: Check what appears immediately before each plugin definition:
+
+```python
+# Validation script
+for query_name in ['query1', 'query2', 'query3']:
+    idx = app_state.find(f'"{query_name}",["^0"')
+    before = app_state[idx-15:idx]
+    print(f'{query_name}: {before}')
+    # Should show: ]]]," pattern for all siblings
+```
+
+**Expected output** (all siblings should match):
+```
+query1: ","^1L",null]]],"
+query2: ","^1L",null]]],"
+query3: ","^1L",null]]],"
+```
+
+**Bug indicator** (mismatched brackets):
+```
+query1: ","^1L",null]]],"   ✓ correct
+query2: ror'})"]]]]]],"     ✗ WRONG - 6 brackets, missing footer
+query3: ","^1L",null]]],"   ✓ correct (but may be nested wrong)
+```
+
+#### 3. Duplicate Footer/Ending Sections (Copy-Paste Error)
+
+**Symptom**: A plugin has too many closing brackets, often 5+ extra `]` characters. Other plugins may appear to be missing brackets.
+
+**Cause**: When copying plugin definitions as templates, the footer+closing section (`]],"^1A",null,...,"^1L",null]]]`) gets duplicated. This adds 5 extra closing brackets to one plugin.
+
+**Example of bug**:
+```
+// WRONG - duplicate footer (first one is incomplete, second is complete)
+"queryTimeout","10000","requireConfirmation",false,"type","GET"]],"^1A",null,...,"^1L",null]]],"queryTimeout","10000","workflowId",...
+                                                              ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
+                                                              This entire section is a duplicate and should be removed
+```
+
+**Detection**: Look for `]]],"queryTimeout"` or `]]],"<any-template-prop>"` patterns - the footer should only be followed by the next plugin name, not more template properties.
+
+#### 4. Cross-Plugin Bracket Compensation
+
+**Symptom**: Global bracket count is balanced, but individual plugins have mismatched brackets. Retool import may fail with cryptic errors or silently drop plugins.
+
+**Cause**: When one plugin is missing content (fewer closing brackets), another plugin has extra content (more closing brackets). The errors cancel out globally but break the nesting structure.
+
+**Example**:
+```
+Plugin A: 23 open, 18 close  ← Missing 5 closing brackets
+Plugin B: 17 open, 22 close  ← Has 5 extra closing brackets
+Total:    40 open, 40 close  ← LOOKS BALANCED but is BROKEN
+```
+
+**How to detect**: Always check bracket balance PER PLUGIN, not just globally. Use the enhanced validation script below.
+
+### Per-Plugin Bracket Balance
+
+**IMPORTANT**: Each plugin must have balanced brackets INDIVIDUALLY. A globally balanced file can still be broken if brackets are misallocated between plugins.
+
+#### How to Extract and Validate Individual Plugins
+
+```python
+import re
+
+def extract_plugin_content(app_state, plugin_name):
+    """Extract the content of a single plugin from appState."""
+    # Find plugin start
+    start_pattern = f'"{plugin_name}",["^0"'
+    start_idx = app_state.find(start_pattern)
+    if start_idx == -1:
+        return None
+
+    # Find next sibling plugin (or end)
+    # Look for pattern: ]]],"pluginName",["^0"
+    next_plugin = re.search(r'\]\]\],"([a-zA-Z][a-zA-Z0-9_]+)",\["\^0"', app_state[start_idx+10:])
+
+    if next_plugin:
+        end_idx = start_idx + 10 + next_plugin.start() + 3  # Include the ]]]
+    else:
+        # Last plugin - find the closing ]]] before "]
+        end_idx = app_state.find(']]]"]', start_idx) + 3
+
+    return app_state[start_idx:end_idx]
+
+def check_plugin_brackets(app_state, plugin_name):
+    """Check if a plugin has balanced brackets."""
+    content = extract_plugin_content(app_state, plugin_name)
+    if not content:
+        return None, None, "Plugin not found"
+
+    opens = content.count('[')
+    closes = content.count(']')
+
+    if opens == closes:
+        return opens, closes, "✓ Balanced"
+    elif opens > closes:
+        return opens, closes, f"✗ Missing {opens - closes} closing bracket(s)"
+    else:
+        return opens, closes, f"✗ Has {closes - opens} extra closing bracket(s)"
+```
+
+### Validation Script (Enhanced)
+
+Use this Python script to validate Transit structure before import:
+
+```python
+import json
+import re
+
+def validate_retool_json(filepath):
+    with open(filepath) as f:
+        data = json.load(f)
+
+    app_state = data['page']['data']['appState']
+
+    # Verify appState is valid JSON
+    try:
+        json.loads(app_state)
+    except json.JSONDecodeError as e:
+        print(f"CRITICAL: appState is not valid JSON: {e}")
+        return False
+
+    # Find all plugin definitions
+    plugins = re.findall(r'"([a-zA-Z][a-zA-Z0-9_]+)",\["\^0"', app_state)
+
+    print(f"Found {len(plugins)} plugins: {plugins}")
+    print()
+
+    errors = []
+    warnings = []
+
+    # Check 1: Sibling pattern (]]]," before each plugin)
+    for plugin in plugins:
+        idx = app_state.find(f'"{plugin}",["^0"')
+        before = app_state[idx-15:idx]
+
+        if ']]],"' not in before and idx > 100:
+            bracket_count = before.count(']')
+            if bracket_count > 3:
+                errors.append(f'{plugin}: Found {bracket_count} brackets before - missing footer in previous plugin')
+            elif bracket_count < 3:
+                errors.append(f'{plugin}: Found only {bracket_count} brackets before - previous plugin may have extra content')
+
+    # Check 2: Per-plugin bracket balance
+    print("Per-plugin bracket balance:")
+    for i, plugin in enumerate(plugins):
+        content = extract_plugin_content(app_state, plugin)
+        if content:
+            opens = content.count('[')
+            closes = content.count(']')
+            status = "✓" if opens == closes else "✗"
+            diff = opens - closes
+
+            print(f"  {plugin}: [{opens}/{closes}] {status}")
+
+            if diff != 0:
+                if diff > 0:
+                    errors.append(f'{plugin}: Missing {diff} closing bracket(s)')
+                else:
+                    errors.append(f'{plugin}: Has {-diff} extra closing bracket(s)')
+
+    # Check 3: Footer field presence
+    print()
+    print("Footer field presence:")
+    for plugin in plugins:
+        content = extract_plugin_content(app_state, plugin)
+        if content:
+            has_footer = '"^1L",null]]]' in content or '"^1L",null]],' in content
+            status = "✓" if has_footer else "✗ MISSING"
+            print(f"  {plugin}: {status}")
+
+            if not has_footer:
+                errors.append(f'{plugin}: Missing footer fields (^1A through ^1L)')
+
+    # Check 4: Duplicate footer detection
+    for plugin in plugins:
+        content = extract_plugin_content(app_state, plugin)
+        if content:
+            footer_count = content.count('"^1L",null]]]')
+            if footer_count > 1:
+                errors.append(f'{plugin}: Has {footer_count} footer sections (duplicate detected)')
+
+    print()
+    if errors:
+        print("VALIDATION ERRORS:")
+        for e in errors:
+            print(f"  ✗ {e}")
+        return False
+
+    if warnings:
+        print("WARNINGS:")
+        for w in warnings:
+            print(f"  ⚠ {w}")
+
+    print("✓ Transit structure validated successfully")
+    return True
+
+def extract_plugin_content(app_state, plugin_name):
+    """Extract the content of a single plugin from appState."""
+    start_pattern = f'"{plugin_name}",["^0"'
+    start_idx = app_state.find(start_pattern)
+    if start_idx == -1:
+        return None
+
+    next_plugin = re.search(r'\]\]\],"([a-zA-Z][a-zA-Z0-9_]+)",\["\^0"', app_state[start_idx+10:])
+
+    if next_plugin:
+        end_idx = start_idx + 10 + next_plugin.start() + 3
+    else:
+        end_idx = app_state.find(']]]"]', start_idx) + 3
+
+    return app_state[start_idx:end_idx]
+
+# Usage
+validate_retool_json('apps/my-app.json')
+```
+
+---
+
 ## File Generation Checklist
 
 When generating a Retool app JSON:
@@ -1168,3 +1539,8 @@ When generating a Retool app JSON:
 8. [ ] Screen/page structure is complete
 9. [ ] Theme settings included if customized
 10. [ ] No comments in JSON (invalid syntax)
+11. [ ] **All plugins have complete footer fields (`^1A` through `^1L`)**
+12. [ ] **Bracket pattern `]]],"` before each sibling plugin**
+13. [ ] **Each plugin has balanced brackets individually (not just globally)**
+14. [ ] **No duplicate footer sections from copy-paste errors**
+15. [ ] **appState string is valid JSON when parsed (`json.loads(appState)` succeeds)**

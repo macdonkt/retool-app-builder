@@ -31,11 +31,14 @@ If no workflows or external setup is needed, output only the JSON.
 
 ## Resources
 
+- **JSON Reference**: See `RETOOL_JSON_REFERENCE.md` for complete technical specs (Transit encoding, widget templates, query types, positioning, event handlers)
 - **Retool Docs**: https://docs.retool.com
 - **LLM-Optimized Docs**: https://docs.retool.com/llms.txt
 - **Retool CLI**: https://github.com/tryretool/retool-cli (export/import apps)
 - **Components**: 100+ UI elements (tables, forms, charts, inputs, modals, etc.)
 - **Queries**: REST, GraphQL, SQL/NoSQL, JavaScript transformers, AI integrations
+
+**Important**: Always consult `RETOOL_JSON_REFERENCE.md` when planning and building apps for correct JSON structure, widget types, and Transit encoding format.
 
 ## App Patterns
 

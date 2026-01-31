@@ -4,6 +4,9 @@
 *.key
 *credentials*
 
+# App versions with exposed API keys
+*apikeyexposed*
+
 # OS files
 .DS_Store
 Thumbs.db
