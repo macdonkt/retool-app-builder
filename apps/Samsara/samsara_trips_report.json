@@ -1,0 +1,294 @@
+{
+  "version": 2,
+  "appTemplate": {
+    "name": "Samsara Trips Report",
+    "pages": [
+      {
+        "id": "page1",
+        "name": "Trips Report",
+        "isHidden": false,
+        "body": {
+          "children": [
+            {
+              "id": "filterFrame",
+              "type": "ContainerWidget",
+              "left": 0,
+              "top": 0,
+              "width": 24,
+              "height": 4,
+              "props": {
+                "showBorder": false,
+                "backgroundColor": "#ffffff"
+              },
+              "children": [
+                {
+                  "id": "vehicleSelect",
+                  "type": "SelectWidget",
+                  "left": 0,
+                  "top": 0,
+                  "width": 8,
+                  "height": 4,
+                  "props": {
+                    "label": "Vehicle",
+                    "placeholder": "Select a vehicle...",
+                    "datasource": "{{ qGetVehicles.data.data }}",
+                    "labelKey": "name",
+                    "valueKey": "id",
+                    "clearable": true
+                  }
+                },
+                {
+                  "id": "datePicker",
+                  "type": "DateTimeRangeWidget",
+                  "left": 8,
+                  "top": 0,
+                  "width": 8,
+                  "height": 4,
+                  "props": {
+                    "label": "Date Range",
+                    "defaultStartDate": "{{ moment().subtract(7, 'days').startOf('day') }}",
+                    "defaultEndDate": "{{ moment().endOf('day') }}",
+                    "showTime": false,
+                    "format": "MM/DD/YYYY"
+                  }
+                },
+                {
+                  "id": "btnRun",
+                  "type": "ButtonWidget",
+                  "left": 16,
+                  "top": 1,
+                  "width": 4,
+                  "height": 2,
+                  "props": {
+                    "text": "Run Report",
+                    "type": "default",
+                    "interaction": {
+                      "onClick": [
+                        {
+                          "type": "datasource",
+                          "query": "qGetTrips"
+                        },
+                        {
+                          "type": "datasource",
+                          "query": "qGetIdlingEvents"
+                        }
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "id": "txtHeader",
+              "type": "TextWidget",
+              "left": 0,
+              "top": 4,
+              "width": 24,
+              "height": 2,
+              "props": {
+                "value": "{{ (qGetVehicles.data.data || []).find(v => v.id === vehicleSelect.value)?.name || 'Select a vehicle' }}",
+                "fontSize": 18,
+                "fontWeight": "bold",
+                "color": "#333333"
+              }
+            },
+            {
+              "id": "tblReport",
+              "type": "TableWidget",
+              "left": 0,
+              "top": 6,
+              "width": 24,
+              "height": 36,
+              "props": {
+                "datasource": "{{ transformReportData.data }}",
+                "groupByColumn": "trip_date",
+                "rowColor": "{{ currentRow.row_type === 'total' ? '#f0f0f0' : currentRow.row_type === 'start_header' ? '#f9f9f9' : '#ffffff' }}",
+                "showSearch": false,
+                "showDownload": true,
+                "pageSize": 100,
+                "columns": [
+                  {
+                    "id": "col_start_time",
+                    "title": "START TIME",
+                    "dataIndex": "start_time_display",
+                    "type": "text",
+                    "width": 120,
+                    "mappedValue": "{{ currentRow.row_type !== 'total' && currentRow.row_type !== 'start_header' ? currentRow.start_time_display : '' }}",
+                    "alignment": "left"
+                  },
+                  {
+                    "id": "col_distance_duration",
+                    "title": "DISTANCE (MILES)\nDURATION",
+                    "dataIndex": "distance_miles",
+                    "type": "text",
+                    "width": 160,
+                    "mappedValue": "{{ currentRow.row_type === 'total' ? currentRow.totals_label : (currentRow.row_type === 'start_header' ? '' : currentRow.distance_miles + ' mi  •  ' + currentRow.drive_duration_display) }}",
+                    "textColor": "{{ currentRow.row_type === 'trip' ? '#e6820e' : 'inherit' }}",
+                    "alignment": "right"
+                  },
+                  {
+                    "id": "col_stop_location",
+                    "title": "STOP LOCATION",
+                    "dataIndex": "stop_location_raw",
+                    "type": "html",
+                    "width": 280,
+                    "mappedValue": "{{ (function() { var row = currentRow; if (row.row_type === 'start_header') { var startAddr = row.stop_is_geofence ? '<span style=\"color:red\">[' + row.stop_location_raw + ']</span><br/>' + row.stop_location_raw : (row.stop_location_raw || ''); return '<span style=\"font-style:italic\">Starting from:</span> ' + startAddr; } if (row.row_type === 'total') { return '<strong>Total \u2014 ' + row.stop_count + ' stops</strong>'; } if (row.stop_is_geofence) { return '<span style=\"color:red\">[' + row.stop_location_raw + ']</span><br/>' + row.stop_location_raw; } return row.stop_location_raw || ''; })() }}",
+                    "alignment": "left"
+                  },
+                  {
+                    "id": "col_arrival_time",
+                    "title": "ARRIVAL TIME",
+                    "dataIndex": "arrival_time_display",
+                    "type": "text",
+                    "width": 120,
+                    "mappedValue": "{{ currentRow.row_type === 'trip' ? currentRow.arrival_time_display : '' }}",
+                    "alignment": "left"
+                  },
+                  {
+                    "id": "col_idle_duration",
+                    "title": "IDLE DURATION",
+                    "dataIndex": "idle_duration_display",
+                    "type": "text",
+                    "width": 130,
+                    "mappedValue": "{{ currentRow.idle_duration_display || '' }}",
+                    "alignment": "right"
+                  },
+                  {
+                    "id": "col_stop_duration",
+                    "title": "STOP DURATION",
+                    "dataIndex": "stop_duration_display",
+                    "type": "text",
+                    "width": 130,
+                    "mappedValue": "{{ currentRow.stop_duration_display || '' }}",
+                    "alignment": "right"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "queries": [
+          {
+            "id": "qGetVehicles",
+            "name": "qGetVehicles",
+            "type": "RESTQuery",
+            "resourceName": "Samsara",
+            "trigger": "onPageLoad",
+            "action": {
+              "actionType": "GET",
+              "path": "/fleet/vehicles",
+              "params": [],
+              "headers": [],
+              "bodyType": "none"
+            },
+            "transformer": {
+              "enabled": false
+            },
+            "successEvent": []
+          },
+          {
+            "id": "qGetAddresses",
+            "name": "qGetAddresses",
+            "type": "RESTQuery",
+            "resourceName": "Samsara",
+            "trigger": "onPageLoad",
+            "action": {
+              "actionType": "GET",
+              "path": "/addresses",
+              "params": [],
+              "headers": [],
+              "bodyType": "none"
+            },
+            "transformer": {
+              "enabled": false
+            },
+            "successEvent": []
+          },
+          {
+            "id": "qGetTrips",
+            "name": "qGetTrips",
+            "type": "RESTQuery",
+            "resourceName": "Samsara",
+            "trigger": "manual",
+            "action": {
+              "actionType": "GET",
+              "path": "/v1/fleet/trips",
+              "params": [
+                {
+                  "key": "vehicleId",
+                  "value": "{{ vehicleSelect.value }}"
+                },
+                {
+                  "key": "startMs",
+                  "value": "{{ datePicker.startDate ? new Date(datePicker.startDate).getTime() : '' }}"
+                },
+                {
+                  "key": "endMs",
+                  "value": "{{ datePicker.endDate ? new Date(datePicker.endDate).getTime() : '' }}"
+                }
+              ],
+              "headers": [],
+              "bodyType": "none"
+            },
+            "transformer": {
+              "enabled": false
+            },
+            "successEvent": [
+              {
+                "type": "datasource",
+                "query": "transformReportData"
+              }
+            ]
+          },
+          {
+            "id": "qGetIdlingEvents",
+            "name": "qGetIdlingEvents",
+            "type": "RESTQuery",
+            "resourceName": "Samsara",
+            "trigger": "manual",
+            "action": {
+              "actionType": "GET",
+              "path": "/fleet/idlingEvents",
+              "params": [
+                {
+                  "key": "vehicleIds",
+                  "value": "{{ vehicleSelect.value }}"
+                },
+                {
+                  "key": "startTime",
+                  "value": "{{ datePicker.startDate ? new Date(datePicker.startDate).toISOString() : '' }}"
+                },
+                {
+                  "key": "endTime",
+                  "value": "{{ datePicker.endDate ? new Date(datePicker.endDate).toISOString() : '' }}"
+                }
+              ],
+              "headers": [],
+              "bodyType": "none"
+            },
+            "transformer": {
+              "enabled": false
+            },
+            "successEvent": [
+              {
+                "type": "datasource",
+                "query": "transformReportData"
+              }
+            ]
+          },
+          {
+            "id": "transformReportData",
+            "name": "transformReportData",
+            "type": "TransformerQuery",
+            "trigger": "manual",
+            "transformer": {
+              "enabled": true,
+              "body": "// ─── CONFIG — change this to match your fleet's timezone ───────────────────\nconst FLEET_TIMEZONE = 'America/New_York';\n// ───────────────────────────────────────────────────────────────────────────\n\n// ─── Helpers ───────────────────────────────────────────────────────────────\n\nfunction formatDuration(totalSeconds) {\n  if (totalSeconds == null) return '--';\n  const h = Math.floor(totalSeconds / 3600);\n  const m = Math.floor((totalSeconds % 3600) / 60);\n  const s = totalSeconds % 60;\n  if (h > 0) return `${h}h ${String(m).padStart(2,'0')}m`;\n  return `${String(m).padStart(2,'0')}m ${String(s).padStart(2,'0')}s`;\n}\n\nfunction haversineMeters(lat1, lon1, lat2, lon2) {\n  const R = 6371000;\n  const toRad = d => d * Math.PI / 180;\n  const dLat = toRad(lat2 - lat1), dLon = toRad(lon2 - lon1);\n  const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon/2)**2;\n  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));\n}\n\nfunction findMatchingAddress(lat, lon, addressRaw, savedAddresses) {\n  for (const addr of savedAddresses) {\n    if (addr.latitude && addr.longitude) {\n      const dist = haversineMeters(lat, lon, addr.latitude, addr.longitude);\n      if (dist <= (addr.radius_meters || 200)) return addr;\n    }\n  }\n  const raw = (addressRaw || '').toLowerCase().trim();\n  return savedAddresses.find(a => (a.formatted_address || '').toLowerCase().trim() === raw) || null;\n}\n\nfunction toLocalDateString(epochMs) {\n  return new Date(epochMs).toLocaleDateString('en-US', {\n    timeZone: FLEET_TIMEZONE, year: 'numeric', month: '2-digit', day: '2-digit'\n  });\n}\n\nfunction toLocalTimeString(epochMs) {\n  return new Date(epochMs).toLocaleTimeString('en-US', {\n    timeZone: FLEET_TIMEZONE, hour: 'numeric', minute: '2-digit', hour12: true\n  });\n}\n\n// ─── Normalize Samsara API responses ───────────────────────────────────────\n\nconst rawTrips = (qGetTrips.data && qGetTrips.data.trips) ? qGetTrips.data.trips : [];\nconst rawIdling = (qGetIdlingEvents.data && qGetIdlingEvents.data.data) ? qGetIdlingEvents.data.data : [];\nconst rawAddresses = (qGetAddresses.data && qGetAddresses.data.data) ? qGetAddresses.data.data : [];\n\nif (rawTrips.length === 0) return [];\n\nconst trips = rawTrips.map(t => ({\n  id:                 t.id,\n  start_time_ms:      t.startMs,\n  end_time_ms:        t.endMs,\n  distance_meters:    t.distanceMeters || 0,\n  start_address_raw:  t.startAddress || '',\n  end_address_raw:    t.endAddress || '',\n  start_lat:          t.startCoordinates ? t.startCoordinates.latitude : null,\n  start_lng:          t.startCoordinates ? t.startCoordinates.longitude : null,\n  end_lat:            t.endCoordinates ? t.endCoordinates.latitude : null,\n  end_lng:            t.endCoordinates ? t.endCoordinates.longitude : null,\n  driver_id:          t.driverId || null,\n}));\n\nconst idling = rawIdling.map(e => ({\n  start_time_ms:    new Date(e.startTime).getTime(),\n  end_time_ms:      new Date(e.endTime || e.startTime).getTime(),\n  duration_seconds: e.durationMs ? Math.floor(e.durationMs / 1000) : 0,\n}));\n\nconst addresses = rawAddresses.map(a => ({\n  id:                a.id,\n  name:              a.name,\n  formatted_address: a.formattedAddress || '',\n  latitude:          a.latitude || null,\n  longitude:         a.longitude || null,\n  radius_meters:     (a.geofence && a.geofence.circle) ? a.geofence.circle.radius : 200,\n}));\n\n// ─── Core logic ────────────────────────────────────────────────────────────\n\nfunction getIdleForTrip(trip) {\n  return idling\n    .filter(e => e.start_time_ms >= trip.start_time_ms && e.start_time_ms <= trip.end_time_ms)\n    .reduce((sum, e) => sum + e.duration_seconds, 0);\n}\n\nconst sorted = trips.slice().sort((a, b) => a.start_time_ms - b.start_time_ms);\n\nconst byDate = {};\nfor (const trip of sorted) {\n  const d = toLocalDateString(trip.start_time_ms);\n  if (!byDate[d]) byDate[d] = [];\n  byDate[d].push(trip);\n}\n\nconst rows = [];\n\nfor (const dateStr of Object.keys(byDate).sort()) {\n  const dayTrips = byDate[dateStr];\n  let dayMiles = 0, dayDriveSecs = 0, dayIdleSecs = 0, dayStopSecs = 0;\n\n  // Starting from row\n  const first = dayTrips[0];\n  const startMatch = findMatchingAddress(first.start_lat, first.start_lng, first.start_address_raw, addresses);\n  rows.push({\n    row_type:          'start_header',\n    trip_date:         dateStr,\n    stop_location_raw: first.start_address_raw,\n    stop_is_geofence:  !!startMatch,\n    stop_geofence_name: startMatch ? startMatch.name : null,\n  });\n\n  // Trip rows\n  for (let i = 0; i < dayTrips.length; i++) {\n    const trip = dayTrips[i];\n    const next = dayTrips[i + 1] || null;\n\n    const driveSecs     = Math.round((trip.end_time_ms - trip.start_time_ms) / 1000);\n    const distMiles     = parseFloat((trip.distance_meters / 1609.344).toFixed(2));\n    const idleSecs      = getIdleForTrip(trip);\n    const stopSecs      = next ? Math.max(0, Math.round((next.start_time_ms - trip.end_time_ms) / 1000)) : null;\n    const endMatch      = findMatchingAddress(trip.end_lat, trip.end_lng, trip.end_address_raw, addresses);\n\n    dayMiles     += distMiles;\n    dayDriveSecs += driveSecs;\n    dayIdleSecs  += idleSecs;\n    if (stopSecs != null) dayStopSecs += stopSecs;\n\n    rows.push({\n      row_type:               'trip',\n      trip_date:              dateStr,\n      trip_id:                trip.id,\n      start_time_display:     toLocalTimeString(trip.start_time_ms),\n      distance_miles:         distMiles,\n      drive_duration_display: formatDuration(driveSecs),\n      stop_location_raw:      trip.end_address_raw,\n      stop_is_geofence:       !!endMatch,\n      stop_geofence_name:     endMatch ? endMatch.name : null,\n      arrival_time_display:   toLocalTimeString(trip.end_time_ms),\n      idle_duration_display:  formatDuration(idleSecs),\n      stop_duration_display:  stopSecs != null ? formatDuration(stopSecs) : '--',\n    });\n  }\n\n  // Daily totals row\n  rows.push({\n    row_type:               'total',\n    trip_date:              dateStr,\n    stop_count:             dayTrips.length,\n    distance_miles:         parseFloat(dayMiles.toFixed(2)),\n    idle_duration_display:  formatDuration(dayIdleSecs),\n    stop_duration_display:  formatDuration(dayStopSecs),\n    totals_label:           parseFloat(dayMiles.toFixed(2)) + ' miles in ' + formatDuration(dayDriveSecs),\n  });\n}\n\nreturn rows;"
+            },
+            "successEvent": []
+          }
+        ]
+      }
+    ]
+  }
+}

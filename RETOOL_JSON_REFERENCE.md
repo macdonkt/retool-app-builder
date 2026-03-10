@@ -60,7 +60,23 @@ Key sections within appState:
 
 ## Transit JSON Encoding
 
-Retool uses Transit JSON, a format that compresses repeated keys.
+Retool uses Transit JSON, a format that compresses repeated string keys across the document.
+
+### ⚠️ CRITICAL: Never Build appState From Scratch
+
+**Building appState from scratch will always fail** with:
+> "Failed import — Tried to deserialize Record type named 'undefined'"
+
+The Transit cache key assignments (`^0`, `^1;`, `^1M`, etc.) are established by the encoding sequence of the original file. Any hand-written file will have different cache slot assignments and the Retool reader will fail to resolve them.
+
+**The only correct approach:**
+1. Start from a real Retool-exported JSON file (use a file from `apps/general references/` or a previous working build)
+2. Modify it in Python by navigating the parsed structure
+3. Re-serialize with `json.dumps(separators=(',', ':'))`
+
+See the [Building Apps by Modifying a Base File](#building-apps-by-modifying-a-base-file) section for the Python pattern.
+
+---
 
 ### Type Markers
 
@@ -71,27 +87,376 @@ Retool uses Transit JSON, a format that compresses repeated keys.
 | `~#iOM` | Ordered Map |
 | `~#iM` | Map |
 | `~m` | Timestamp (milliseconds) |
-| `["^ "]` | Empty map |
+| `["^ ", ...]` | Transit map (flat key-value list) |
 
-### Key Caching
+### appState Root Structure
 
-Transit caches repeated keys with `^X` notation:
-- First occurrence: `"type"`
-- Subsequent: `"^1;"` (reference to cached key)
+```
+["~#iR", ["^ ", "n", "appTemplate", "v",
+  ["^ ",
+    "appMaxWidth", "100%",
+    ...app config fields...,
+    "plugins", ["~#iOM", [
+      "page1",  [plugin_data],
+      "$main",  [plugin_data],
+      "query1", [plugin_data],
+      ...
+    ]]
+  ]
+]]
+```
 
-Common cached key references:
-| Reference | Typical Meaning |
-|-----------|-----------------|
-| `^0` | Record wrapper |
-| `^7` | `createdAt` |
-| `^15` / `^18` | Empty array reference |
-| `^19` | `uuid` |
-| `^1;` | `type` |
-| `^1<` | `subtype` |
-| `^1=` | `namespace` |
-| `^1>` | `resourceName` |
-| `^1@` | `template` |
-| `^1M` | Map marker |
+### Plugin Wrapper Format (REQUIRED)
+
+Every plugin value in the iOM **must** follow this exact structure:
+
+```
+["^0", ["^ ", "n", "pluginTemplate", "v",
+  ["^ ",
+    "id",   "pluginId",
+    "^19",  null,             // uuid
+    "^1:",  null,             // _comment
+    "^1;",  "widget",         // type: "widget" | "datasource" | "frame" | "screen"
+    "^1<",  "ButtonWidget2",  // subtype (widget class name)
+    "^1=",  null,             // namespace
+    "^1>",  null,             // resourceName ("Samsara", "JavascriptQuery", etc.)
+    "^1?",  null,             // resourceDisplayName
+    "^1@",  ["^1M", [...]],   // template (settings map)
+    "^1A",  ["^1M", []],      // style (["^1M", []] for widgets; null for queries)
+    "^1B",  [position2],      // position2 (see below; null for queries)
+    "^1C",  null,             // mobilePosition2
+    "^1D",  null,             // mobileAppPosition
+    "^1E",  null,             // tabIndex
+    "^1F",  "$main",          // container (parent frame ID)
+    "^7",   "~m1769620000000", // createdAt
+    "^1G",  "~m1769620000000", // updatedAt
+    "^1H",  "",               // folder
+    "^1I",  null,             // presetName
+    "^1J",  "page1",          // screen (page assignment)
+    "^1K",  null,             // boxId
+    "^1L",  null              // subBoxIds
+  ]
+]]
+```
+
+### Position2 Format
+
+```
+["^0", ["^ ", "n", "position2", "v",
+  ["^ ",
+    "^1;", "grid",    // type = "grid"
+    "^1F", "$main",   // container (parent frame)
+    "^1N", "body",    // rowGroup: "body" | "header" | "footer"
+    "^1O", "",        // subcontainer
+    "row", 0,         // grid row (literal key)
+    "col", 0,         // grid column (literal key)
+    "^1P", 5,         // height (row units)
+    "^1Q", 12,        // width (columns, 1–12)
+    "^1R", 0,         // tabNum
+    "^1S", null       // stackPosition
+  ]
+]]
+```
+
+### Confirmed Transit Cache Key Reference
+
+These cache ref → field name mappings are confirmed from real Retool-exported files:
+
+| Cache Ref | Field / Meaning | Notes |
+|-----------|----------------|-------|
+| `^0` | pluginTemplate record type | Outer plugin wrapper + position2 wrapper |
+| `^7` | `createdAt` | Timestamp field |
+| `^19` | `uuid` | Plugin UUID |
+| `^1:` | `_comment` | Always null |
+| `^1;` | `type` | Also reused as `"grid"` key in position |
+| `^1<` | `subtype` | Widget/query class name |
+| `^1=` | `namespace` | Usually null |
+| `^1>` | `resourceName` | e.g. `"Samsara"`, `"JavascriptQuery"` |
+| `^1?` | `resourceDisplayName` | |
+| `^1@` | `template` | Settings map |
+| `^1A` | `style` | `["^1M", []]` for widgets, null for queries |
+| `^1B` | `position2` | Grid position wrapper |
+| `^1C` | `mobilePosition2` | null |
+| `^1D` | `mobileAppPosition` | null |
+| `^1E` | `tabIndex` | null |
+| `^1F` | `container` | Parent frame ID (also reused in position2) |
+| `^1G` | `updatedAt` | Timestamp |
+| `^1H` | `folder` | Empty string `""` |
+| `^1I` | `presetName` | null |
+| `^1J` | `screen` | Page assignment, e.g. `"page1"` |
+| `^1K` | `boxId` | null |
+| `^1L` | `subBoxIds` | null |
+| `^1M` | Inner map type marker | Used as `["^1M", [...]]` for template/column maps |
+| `^1N` | `rowGroup` (in position) | `"body"` \| `"header"` \| `"footer"` |
+| `^1O` | `subcontainer` (in position) | Empty string |
+| `^1P` | `height` (in position) | Row units |
+| `^1Q` | `width` (in position) | Grid columns (1–12) |
+| `^1R` | `tabNum` (in position) | `0` |
+| `^1S` | `stackPosition` (in position) | null |
+| `^A` | Empty array | `["^A", []]` |
+
+---
+
+## Building Apps by Modifying a Base File
+
+### The Python Modification Pattern
+
+```python
+import json, copy
+
+# 1. Load a valid base file
+with open('apps/general references/components exmple.json', 'r') as f:
+    outer = json.loads(f.read())
+
+app_state = outer['page']['data']['appState']
+transit = json.loads(app_state)
+
+# 2. Navigate to the plugins iOM list
+def find_iom(obj, depth=0):
+    if depth > 10: return None
+    if isinstance(obj, list):
+        if len(obj) >= 2 and obj[0] == '~#iOM':
+            return obj[1]
+        for item in obj:
+            r = find_iom(item, depth+1)
+            if r: return r
+    return None
+
+plugins_list = find_iom(transit)
+# plugins_list is a flat list: [key, value, key, value, ...]
+# where each value is ["^0", ["^ ", "n", "pluginTemplate", "v", [v_map]]]
+
+# 3. Navigation helpers
+def get_plugin(name):
+    for i in range(0, len(plugins_list)-1, 2):
+        if plugins_list[i] == name:
+            return plugins_list[i+1]
+    return None
+
+def get_v(pdata):
+    """Get the v-map from a plugin."""
+    # pdata = ["^0", ["^ ", "n", "pluginTemplate", "v", v_map]]
+    outer = pdata[1]
+    return outer[outer.index('v') + 1]
+
+def get_template_data(v_map):
+    """Get the flat list inside the '^1@' template map."""
+    return v_map[v_map.index('^1@') + 1][1]
+
+def set_val(flat_list, key, new_val):
+    """Set value by key in a flat [k, v, k, v, ...] list."""
+    flat_list[flat_list.index(key) + 1] = new_val
+
+def get_position_data(v_map):
+    pos_wrapper = v_map[v_map.index('^1B') + 1]
+    pos_outer = pos_wrapper[1]
+    return pos_outer[pos_outer.index('v') + 1]
+
+def set_position(v_map, row, col, height, width):
+    p = get_position_data(v_map)
+    set_val(p, 'row', row)
+    set_val(p, 'col', col)
+    set_val(p, '^1P', height)
+    set_val(p, '^1Q', width)
+
+def remove_plugin(name):
+    for i in range(0, len(plugins_list)-1, 2):
+        if plugins_list[i] == name:
+            plugins_list.pop(i)
+            plugins_list.pop(i)
+            return
+
+def add_plugin(name, pdata):
+    plugins_list.append(name)
+    plugins_list.append(pdata)
+```
+
+### Creating a New Widget Plugin
+
+Copy the structure of an existing similar widget — **never create from scratch**:
+
+```python
+def make_widget(plugin_id, subtype, row, col, height, width, template_kvs):
+    """Build a new widget plugin in v2 Transit format."""
+    position = ["^0", ["^ ", "n", "position2", "v",
+        ["^ ", "^1;", "grid", "^1F", "$main", "^1N", "body", "^1O", "",
+         "row", row, "col", col, "^1P", height, "^1Q", width, "^1R", 0, "^1S", None]
+    ]]
+
+    tpl_flat = []
+    for k, v in template_kvs.items():
+        tpl_flat.extend([k, v])
+
+    v_map_flat = [
+        "^ ",
+        "id", plugin_id,
+        "^19", None,      # uuid
+        "^1:", None,      # _comment
+        "^1;", "widget",  # type
+        "^1<", subtype,   # subtype
+        "^1=", None,      # namespace
+        "^1>", None,      # resourceName
+        "^1?", None,      # resourceDisplayName
+        "^1@", ["^1M", tpl_flat],  # template
+        "^1A", ["^1M", []],        # style
+        "^1B", position,           # position2
+        "^1C", None, "^1D", None, "^1E", None,
+        "^1F", "$main",            # container
+        "^7",  "~m1769620000000",  # createdAt
+        "^1G", "~m1769620000000",  # updatedAt
+        "^1H", "",                 # folder
+        "^1I", None,               # presetName
+        "^1J", "page1",            # screen
+        "^1K", None,               # boxId
+        "^1L", None,               # subBoxIds
+    ]
+
+    return ["^0", ["^ ", "n", "pluginTemplate", "v", v_map_flat]]
+
+# Example: add a text widget
+add_plugin('appTitle', make_widget(
+    'appTitle', 'TextWidget2', 0, 0, 4, 12,
+    {"heightType": "auto", "value": "# My App Title", "hidden": False,
+     "margin": "4px 8px", "showInEditor": False}
+))
+```
+
+### Creating a New Query Plugin
+
+```python
+def make_query(plugin_id, subtype, resource_name, code_or_query):
+    """Build a new query plugin in v2 Transit format."""
+    tpl_flat = [
+        "queryRefreshTime", "",
+        "allowedGroupIds", ["^A", []],
+        "isFunction", False,
+        "queryDisabledMessage", "",
+        "successMessage", "",
+        "queryDisabled", "",
+        "runWhenModelUpdates", False,
+        "showFailureToaster", True,
+        "query", code_or_query,
+        "showSuccessToaster", False,
+        "isFetching", False,
+        "finished", None,
+    ]
+
+    v_map_flat = [
+        "^ ",
+        "id", plugin_id,
+        "^19", None,
+        "^1:", None,
+        "^1;", "datasource",
+        "^1<", subtype,
+        "^1=", None,
+        "^1>", resource_name,
+        "^1?", None,
+        "^1@", ["^1M", tpl_flat],
+        "^1A", None,    # no style for queries
+        "^1B", None,    # no position for queries
+        "^1C", None, "^1D", None, "^1E", None,
+        "^1F", "$main",
+        "^7",  "~m1769620000000",
+        "^1G", "~m1769620000000",
+        "^1H", "",
+        "^1I", None,
+        "^1J", "page1",
+        "^1K", None,
+        "^1L", None,
+    ]
+
+    return ["^0", ["^ ", "n", "pluginTemplate", "v", v_map_flat]]
+
+# Example: JS query
+add_plugin('qRunReport', make_query(
+    'qRunReport', 'JavascriptQuery', 'JavascriptQuery',
+    'return await someQuery.trigger();'
+))
+```
+
+### Save and Validate
+
+```python
+# Re-serialize and validate
+new_app_state = json.dumps(transit, separators=(',', ':'))
+
+# Verify both layers parse
+json.loads(new_app_state)       # appState must be valid JSON
+outer['page']['data']['appState'] = new_app_state
+output = json.dumps(outer, separators=(',', ':'))
+json.loads(output)              # outer must be valid JSON
+
+with open('apps/MyProject/output.json', 'w') as f:
+    f.write(output)
+```
+
+### TableWidget2 Column Format
+
+The real Retool table uses `_columnIds` + separate maps for per-column settings (not a simple `columns` array):
+
+```python
+cols = ["aa001", "bb002", "cc003"]  # column ID strings
+
+template_kvs = {
+    "selectedRowKey": None,
+    "data": "{{ myQuery.data }}",
+    "heightType": "fixed",
+    "disableEdits": True,
+    "disableSave": True,
+    "_rowHeight": "medium",
+    "_columnIds": ["^A", cols],
+    "_columnKey": ["^1M", [               # data field → column mapping
+        "aa001", "field_a",
+        "bb002", "field_b",
+        "cc003", "field_c",
+    ]],
+    "_columnTitle": ["^1M", [             # column header labels
+        "aa001", "Column A",
+        "bb002", "Column B",
+        "cc003", "Column C",
+    ]],
+    "_columnFormat": ["^1M", [            # "string" | "html" | "number"
+        "aa001", "string",
+        "bb002", "string",
+        "cc003", "html",
+    ]],
+    "_columnValueOverride": ["^1M", [     # cell expression per column
+        "aa001", "{{ currentSourceRow.field_a || '' }}",
+        "bb002", "{{ currentSourceRow.field_b || '' }}",
+        "cc003", "{{ currentSourceRow.field_c || '' }}",
+    ]],
+    "_columnTextColor": ["^1M", [         # text color per column (empty = default)
+        "aa001", "",
+        "bb002", "{{ currentSourceRow.type === 'total' ? '#e6820e' : 'inherit' }}",
+        "cc003", "",
+    ]],
+    "_columnAlignment": ["^1M", [
+        "aa001", "left", "bb002", "left", "cc003", "right",
+    ]],
+    "_columnBackgroundColor": ["^1M", ["aa001", "", "bb002", "", "cc003", ""]],
+    "_columnAlternateRowBackgroundColor": ["^1M", ["aa001", "", "bb002", "", "cc003", ""]],
+    "_columnSearchMode": ["^1M", ["aa001", "default", "bb002", "default", "cc003", "default"]],
+    "_columnSortDisabled": ["^1M", ["aa001", False, "bb002", False, "cc003", False]],
+    "_columnEditableOptions": ["^1M", ["aa001", ["^1M", []], "bb002", ["^1M", []], "cc003", ["^1M", []]]],
+    "_columnCellTooltip": ["^1M", ["aa001", "", "bb002", "", "cc003", ""]],
+    "_columnTooltip": ["^1M", ["aa001", "", "bb002", "", "cc003", ""]],
+    "_columnIcon": ["^1M", ["aa001", "", "bb002", "", "cc003", ""]],
+    "_primaryKeyColumnId": "aa001",
+    "_rowColor": "{{ currentSourceRow.type === 'total' ? '#f0f0f0' : '#ffffff' }}",
+    "autoColumnWidth": False,
+    "showPagination": True,
+    "showSearch": False,
+    "showFilter": False,
+    "showDownload": True,
+    "showRefresh": True,
+    "hidden": False,
+    "loading": False,
+    "events": [],
+    "style": ["^1M", [["rowSeparator", "surfacePrimaryBorder"]]],
+}
+```
+
+> **Note**: Use `currentSourceRow` (not `currentRow`) in column value expressions and row color expressions.
 
 ---
 
@@ -239,34 +604,16 @@ Common cached key references:
 
 ### Widget Template Structure
 
-Every widget follows this plugin template structure:
+> **Note**: The JSON objects below document the *template field contents* only — the actual in-file Transit format wraps them in the plugin wrapper structure described above. When modifying a file in Python, you navigate to the template map and edit values there.
 
-```json
-{
-  "id": "componentId",
-  "uuid": "unique-uuid",
-  "_comment": null,
-  "type": "widget",
-  "subtype": "WidgetType",
-  "namespace": null,
-  "resourceName": null,
-  "resourceDisplayName": null,
-  "template": { /* widget-specific properties */ },
-  "style": null,
-  "position2": { /* positioning */ },
-  "mobilePosition2": null,
-  "mobileAppPosition": null,
-  "tabIndex": null,
-  "container": "parentContainerId",
-  "createdAt": "~m1234567890",
-  "updatedAt": "~m1234567890",
-  "folder": "",
-  "presetName": null,
-  "screen": null,
-  "boxId": null,
-  "subBoxIds": null
-}
-```
+**Template fields** (the settings inside `"^1@": ["^1M", [...]]`):
+
+The template contains widget-specific properties as a flat key-value list. Examples for each widget type are shown in the sections below.
+
+**Non-template plugin fields** use Transit cache refs as documented in the cache key table above. When building via Python, use the confirmed cache refs exactly — do not use literal field names like `"uuid"` or `"type"` in place of `"^19"` or `"^1;"`.
+
+**Inner maps** within templates use `["^1M", [k, v, k, v, ...]]` format.
+**Arrays** use `["^A", [item1, item2, ...]]` or plain `[]`.
 
 ---
 
@@ -777,6 +1124,134 @@ Every widget follows this plugin template structure:
 
 ---
 
+## State Slots (Variables)
+
+State slots store app-level variables that persist across component interactions.
+
+### State Slot Definition
+
+```json
+{
+  "id": "variableName",
+  "uuid": "unique-uuid",
+  "_comment": null,
+  "type": "state",
+  "subtype": "StateSlot",
+  "namespace": null,
+  "resourceName": null,
+  "resourceDisplayName": null,
+  "template": {
+    "value": "",
+    "persistence": "none"
+  },
+  "style": null,
+  "position2": null,
+  "mobilePosition2": null,
+  "mobileAppPosition": null,
+  "tabIndex": null,
+  "container": null,
+  "createdAt": "~m1234567890",
+  "updatedAt": "~m1234567890",
+  "folder": "",
+  "presetName": null,
+  "screen": null,
+  "boxId": null,
+  "subBoxIds": null
+}
+```
+
+### Persistence Options
+
+| Value | Description |
+|-------|-------------|
+| `none` | Value resets on page refresh |
+| `localStorage` | Persists in browser localStorage |
+| `urlHash` | Stored in URL hash (shareable) |
+
+### Common Variable Patterns
+
+```json
+// Timestamp variable
+{
+  "id": "lastSyncTime",
+  "type": "state",
+  "subtype": "StateSlot",
+  "template": {
+    "value": "",
+    "persistence": "none"
+  }
+}
+
+// Status message variable
+{
+  "id": "syncStatus",
+  "type": "state",
+  "subtype": "StateSlot",
+  "template": {
+    "value": "Ready",
+    "persistence": "none"
+  }
+}
+
+// Saved views array (with localStorage persistence)
+{
+  "id": "savedViews",
+  "type": "state",
+  "subtype": "StateSlot",
+  "template": {
+    "value": "[]",
+    "persistence": "localStorage"
+  }
+}
+
+// Current working value
+{
+  "id": "currentSQL",
+  "type": "state",
+  "subtype": "StateSlot",
+  "template": {
+    "value": "",
+    "persistence": "none"
+  }
+}
+```
+
+### Setting Variable Values
+
+In event handlers or JavaScript queries:
+
+```javascript
+// Set a simple value
+variableName.setValue("new value")
+
+// Set timestamp
+lastSyncTime.setValue(new Date().toISOString())
+
+// Set status message
+syncStatus.setValue("Syncing...")
+
+// Update array (saved views)
+savedViews.setValue([...savedViews.value, { name: "New View", sql: currentSQL.value }])
+
+// Clear value
+variableName.setValue("")
+```
+
+### Reading Variable Values
+
+```javascript
+// In bindings
+{{ variableName.value }}
+
+// In JavaScript
+const currentValue = variableName.value;
+
+// Conditional display
+{{ lastSyncTime.value ? `Last synced: ${lastSyncTime.value}` : 'Never synced' }}
+```
+
+---
+
 ## Event Handlers
 
 ### Event Structure
@@ -909,9 +1384,35 @@ Every widget follows this plugin template structure:
 
 - **12-column grid** layout
 - `width`: 1-12 (columns to span)
-- `height`: Row units (typically 0.4-2+ per component)
+- `height`: Row units (see standard heights below)
 - `row`: Starting row position
 - `col`: Starting column (0-11)
+
+### Standard Height Units
+
+Based on Retool AI patterns, use these consistent heights:
+
+| Component Type | Height | Notes |
+|----------------|--------|-------|
+| Button | 5 | Standard clickable button |
+| Text (heading) | 3-6 | `#### Heading` = 4, `# Title` = 6 |
+| Text (body) | 4-5 | Single line status text |
+| Text (paragraph) | 10+ | Multi-line explanations |
+| TextInput | 1 | Single-line input |
+| TextArea | 8-15 | Multi-line input |
+| Table | 54+ | Data display area |
+| Container | 11-80 | Groups of components |
+
+### Row Spacing Conventions
+
+```
+Row 0-10:   App title and header controls
+Row 11-23:  Secondary controls (sync, filters)
+Row 24+:    Main content area
+Row 100+:   Results/output section
+```
+
+Leave gaps between logical sections (e.g., row 24 starts main content after row 11-22 controls).
 
 ### Row Groups
 
@@ -1223,6 +1724,188 @@ utils.showNotification({
 
 ---
 
+## Common UI Patterns
+
+### Complete Query Builder Example
+
+A full-featured natural language to SQL interface with saved views, sync, and AI refinement:
+
+**Wireframe:**
+```
+MAIN PAGE STRUCTURE:
+- [Text] appTitle "# Transaction Query Builder" (row 2, col 0, width 10, height 6)
+- [Container] syncControlsContainer (row 11, col 0, width 12, height 11)
+  - [Button] syncNowButton "Sync Now" (row 1, col 0, width 1, height 5)
+  - [Text] lastSyncText "**Last synced:** {{ lastSyncTime.value || 'Never' }}" (row 1, col 1, width 3, height 5)
+  - [Text] syncStatusText "{{ syncStatus.value }}" (row 1, col 4, width 4, height 5)
+- [Container] savedViewsContainer (row 24, col 0, width 3, height 80)
+  - [Text] savedViewsTitle "#### Saved Views" (row 0, col 0, width 12, height 4)
+  - [Button] addViewButton "Save Current" (row 4, col 0, width 12, height 5)
+  - [Text] savedViewsList "{{ savedViews.value.map(v => `• [${v.name}](javascript:void(0))`).join('\\n') }}" (row 10, col 0, width 12, height 60)
+- [Container] queryBuilderContainer (row 24, col 3, width 6, height 80)
+  - [Text] queryBuilderTitle "#### Natural Language Query" (row 0, col 0, width 12, height 4)
+  - [Text Area] naturalLanguageInput "Describe what you want to query..." (row 5, col 0, width 12, height 8)
+  - [Button] generateSQLButton "Generate SQL" (row 14, col 0, width 2, height 5)
+  - [Text] sqlExplanationText "#### Generated SQL & Explanation" (row 20, col 0, width 12, height 4)
+  - [Text Area] generatedSQLInput "SELECT * FROM transactions LIMIT 10" (row 25, col 0, width 12, height 15)
+  - [Text] explanationText "{{ sqlExplanation.value || '_SQL explanation will appear here_' }}" (row 41, col 0, width 12, height 10)
+  - [Button] runQueryButton "Run Query" (row 52, col 0, width 2, height 5)
+  - [Button] editSQLButton "Edit SQL" (row 52, col 2, width 2, height 5)
+- [Container] aiChatContainer (row 24, col 9, width 3, height 80)
+  - [Text] aiChatTitle "#### AI Refinement" (row 0, col 0, width 12, height 4)
+  - [Text Area] aiRefinementInput "e.g., 'Add a WHERE clause for last month'" (row 11, col 0, width 12, height 8)
+  - [Button] refineQueryButton "Refine Query" (row 20, col 0, width 12, height 5)
+- [Container] resultsContainer (row 106, col 0, width 12, height 65)
+  - [Text] resultsTitle "#### Query Results" (row 0, col 0, width 8, height 5)
+  - [Text] resultsCount "{{ queryResults.data ? queryResults.data.length : 0 }} rows" (row 0, col 8, width 4, height 5)
+  - [Table] resultsTable "" (row 6, col 0, width 12, height 54)
+
+FRAMES STRUCTURE:
+- [Modal Frame] saveViewModal
+  - [header]
+    - [Text] saveViewModalTitle "#### Save Query View" (row 0, col 0, width 12, height 3)
+  - [body]
+    - [Text Input] viewNameInput "View name" (row 0, col 0, width 12, height 1)
+    - [Text Area] viewDescriptionInput "Description (optional)" (row 3, col 0, width 12, height 5)
+  - [footer]
+    - [Button] cancelSaveButton "Cancel" (row 0, col 0, width 2, height 5)
+    - [Button] confirmSaveButton "Save View" (row 0, col 2, width 2, height 5)
+```
+
+**Technical Spec:**
+```
+stateDiagram-v2
+
+%% Variables
+lastSyncTime: "Variable -- stores timestamp of last successful sync"
+syncStatus: "Variable -- stores current sync status message"
+savedViews: "Variable -- array of saved query views with name, sql, description"
+sqlExplanation: "Variable -- stores AI explanation of generated SQL"
+currentSQL: "Variable -- stores the current SQL query being worked on"
+
+%% Queries
+query1: "GoogleSheetsQuery -- fetches all transaction data from Google Sheets"
+createTransactionsTable: "SqlQuery -- creates transactions table in Retool DB if not exists"
+syncToRetoolDB: "JavascriptQuery -- syncs Google Sheets data to Retool DB (truncate and insert)"
+generateSQLQuery: "JavascriptQuery -- uses AI to convert natural language to SQL"
+refineSQL: "JavascriptQuery -- uses AI to refine existing SQL based on user feedback"
+queryResults: "SqlQuery -- executes the generated/edited SQL query against Retool DB"
+saveViewToStorage: "JavascriptQuery -- saves current query as a named view"
+loadViewQuery: "JavascriptQuery -- loads a saved view and populates the interface"
+
+%% Data Flow - Auto Sync on Load
+query1 --> syncToRetoolDB : onSuccess
+syncToRetoolDB --> lastSyncTime : onSuccess
+syncToRetoolDB --> syncStatus : onSuccess
+syncToRetoolDB --> queryResults : onSuccess
+
+%% Data Flow - Manual Sync
+syncNowButton --> query1 : onClick (trigger)
+syncNowButton --> syncStatus : onClick (set "Syncing...")
+
+%% Data Flow - Natural Language to SQL
+naturalLanguageInput --> generateSQLQuery
+generateSQLButton --> generateSQLQuery : onClick
+generateSQLQuery --> generatedSQLInput
+generateSQLQuery --> sqlExplanation
+generateSQLQuery --> currentSQL
+
+%% Data Flow - SQL Refinement
+aiRefinementInput --> refineSQL
+currentSQL --> refineSQL
+refineQueryButton --> refineSQL : onClick
+refineSQL --> generatedSQLInput
+refineSQL --> sqlExplanation
+refineSQL --> currentSQL
+
+%% Data Flow - Query Execution
+generatedSQLInput --> queryResults
+runQueryButton --> queryResults : onClick
+queryResults --> resultsTable
+
+%% Data Flow - Saved Views
+addViewButton --> saveViewModal : onClick (open)
+confirmSaveButton --> saveViewToStorage : onClick
+saveViewToStorage --> savedViews
+saveViewToStorage --> saveViewModal : onSuccess (close)
+savedViewsList --> loadViewQuery : onClick links
+loadViewQuery --> generatedSQLInput
+loadViewQuery --> currentSQL
+```
+
+### Three-Column Layout Pattern
+
+For apps with sidebar + main content + auxiliary panel:
+
+```
+LAYOUT (12-column grid):
+- Sidebar: col 0, width 3 (25%)
+- Main content: col 3, width 6 (50%)
+- Auxiliary: col 9, width 3 (25%)
+
+Row positioning:
+- Header/controls: row 0-20
+- Main content area: row 24+
+- Use consistent row heights (5 units for buttons, 8 for text areas)
+```
+
+### Sync Status Pattern
+
+For apps that sync data from external sources:
+
+```
+%% Variables
+lastSyncTime: "Variable -- ISO timestamp of last sync"
+syncStatus: "Variable -- 'Ready' | 'Syncing...' | 'Synced' | 'Error'"
+
+%% Data Flow
+syncButton.onClick --> syncStatus.setValue("Syncing...")
+syncButton.onClick --> fetchExternalData.trigger()
+fetchExternalData.onSuccess --> syncToLocalDB.trigger()
+syncToLocalDB.onSuccess --> lastSyncTime.setValue(new Date().toISOString())
+syncToLocalDB.onSuccess --> syncStatus.setValue("Synced")
+syncToLocalDB.onFailure --> syncStatus.setValue("Sync failed")
+```
+
+### Modal Save/Cancel Pattern
+
+Standard modal with form inputs and action buttons:
+
+```
+FRAMES STRUCTURE:
+- [Modal Frame] actionModal
+  - [header]
+    - [Text] modalTitle "#### Modal Title" (row 0, col 0, width 12, height 3)
+  - [body]
+    - [Text Input] field1 "Field 1" (row 0, col 0, width 12, height 1)
+    - [Text Area] field2 "Field 2" (row 3, col 0, width 12, height 5)
+  - [footer]
+    - [Button] cancelButton "Cancel" (row 0, col 0, width 2, height 5)
+    - [Button] confirmButton "Confirm" (row 0, col 2, width 2, height 5)
+
+%% Event Handlers
+openButton.onClick --> actionModal.show()
+cancelButton.onClick --> actionModal.hide()
+confirmButton.onClick --> saveAction.trigger()
+saveAction.onSuccess --> actionModal.hide()
+saveAction.onSuccess --> refreshData.trigger()
+```
+
+### Clickable List with Dynamic Content
+
+For saved items, history, or navigation lists:
+
+```javascript
+// In savedViewsList text component value:
+{{ savedViews.value && savedViews.value.length > 0
+   ? savedViews.value.map(v => `• [${v.name}](javascript:void(0))`).join('\\n')
+   : '_No saved items yet_' }}
+
+// Note: Links in markdown text can trigger events via click handlers
+```
+
+---
+
 ## Best Practices
 
 ### Component IDs
@@ -1254,239 +1937,140 @@ utils.showNotification({
 
 ### Plugin Footer Requirements
 
-**CRITICAL**: Every plugin (query, widget, screen, frame) MUST have a complete footer with fields `^1A` through `^1L`. Missing footer fields cause subsequent plugins to be nested incorrectly and not recognized by Retool on import.
-
-#### Required Footer Fields
-
-```
-"^1A",null,"^1B",null,"^1C",null,"^1D",null,"^1E",null,"^1F","","^7","~m<timestamp>","^1G","~m<timestamp>","^1H","","^1I",null,"^1J","<pageId>","^1K",null,"^1L",null
-```
+Every plugin (query, widget, screen, frame) MUST have the complete footer fields `^1A` through `^1L`. These are the last fields in the v-map before the plugin's closing brackets.
 
 Key fields:
-| Field | Purpose |
-|-------|---------|
-| `^1A` - `^1I` | Internal metadata (usually null or empty) |
-| `^1J` | **Page assignment** (e.g., `"page1"`, `"favorites"`) |
-| `^1K`, `^1L` | Additional metadata (usually null) |
-| `^7`, `^1G` | Timestamps (`~m` prefix + milliseconds) |
-
-#### Plugin Closing Pattern
-
-Each plugin definition should end with this bracket pattern:
-
-```
-...,"^1J","page1","^1K",null,"^1L",null]]],
-```
-
-**Correct**: `]]],"` (3 closing brackets + comma) before the next sibling plugin
-**Wrong**: `]]]]]],"` (6+ brackets) indicates missing footer fields
+| Field | Meaning | Typical Value |
+|-------|---------|---------------|
+| `^1A` | style | `["^1M", []]` for widgets; null for queries |
+| `^1B` | position2 | Grid position wrapper for widgets; null for queries |
+| `^1C`–`^1E` | mobile/tab metadata | null |
+| `^1F` | container | `"$main"` |
+| `^7` | createdAt | `"~m1769620000000"` |
+| `^1G` | updatedAt | `"~m1769620000000"` |
+| `^1H` | folder | `""` |
+| `^1I` | presetName | null |
+| `^1J` | **screen (page assignment)** | `"page1"` |
+| `^1K`, `^1L` | boxId, subBoxIds | null |
 
 ### Common Structural Bugs
 
-#### 1. Missing Footer After Events
+#### 1. "Record type named undefined" on Import
 
-**Symptom**: Queries/widgets defined after the affected plugin are not visible in Retool after import.
+**Symptom**: Retool shows "Failed import — Tried to deserialize Record type named 'undefined'"
 
-**Cause**: When a plugin has an `events` array, the footer fields must come AFTER the events array closes. If the footer is omitted, subsequent plugins are nested at the wrong level.
+**Cause**: The appState was built from scratch (or copied from another format) and doesn't match the Transit cache slot assignments that Retool's reader expects. Specifically:
+- Missing `["^0", ["^ ", "n", "pluginTemplate", "v", [...]]]` outer wrapper
+- Plugin data wrapped in double array `[["^0", [...]]]` instead of `["^0", [...]]`
+- Literal string keys (`"uuid"`, `"type"`) instead of cache refs (`"^19"`, `"^1;"`)
 
-**Example of bug**:
-```
-// WRONG - missing footer after events
-"events",[["^1M",[...]]]]]]],"nextQuery"
-                       ↑
-                       Too many closing brackets, no footer
-```
+**Fix**: Always build from a real Retool-exported file using Python. Never construct appState as a string or from scratch.
 
-**Correct structure**:
-```
-// CORRECT - footer fields after events, then proper closing
-"events",[["^1M",[...]]]]]]],"^1A",null,...,"^1J","page1","^1K",null,"^1L",null]]],"nextQuery"
-```
+#### 2. Bracket Imbalance (Extra Data Error)
 
-#### 2. Bracket Count Mismatch
+**Symptom**: `json.JSONDecodeError: Extra data: line 1 column XXXXX (char XXXXX)`
 
-**How to verify**: Check what appears immediately before each plugin definition:
+**Cause**: The appState string has more `]` than `[`. Usually from copy-paste errors or manual editing.
 
+**Diagnosis**:
 ```python
-# Validation script
-for query_name in ['query1', 'query2', 'query3']:
-    idx = app_state.find(f'"{query_name}",["^0"')
-    before = app_state[idx-15:idx]
-    print(f'{query_name}: {before}')
-    # Should show: ]]]," pattern for all siblings
+app_state = outer['page']['data']['appState']
+opens = app_state.count('[')
+closes = app_state.count(']')
+print(f"Balance: {opens - closes}")  # Must be 0
 ```
 
-**Expected output** (all siblings should match):
-```
-query1: ","^1L",null]]],"
-query2: ","^1L",null]]],"
-query3: ","^1L",null]]],"
-```
+**Fix**: Parse the file with `json.loads`, navigate to the imbalanced plugin using the Python structure, and correct it there. Never edit the raw JSON string.
 
-**Bug indicator** (mismatched brackets):
-```
-query1: ","^1L",null]]],"   ✓ correct
-query2: ror'})"]]]]]],"     ✗ WRONG - 6 brackets, missing footer
-query3: ","^1L",null]]],"   ✓ correct (but may be nested wrong)
-```
+#### 3. Plugin Not Visible After Import
 
-#### 3. Duplicate Footer/Ending Sections (Copy-Paste Error)
+**Symptom**: Import succeeds but some widgets/queries are missing in the app.
 
-**Symptom**: A plugin has too many closing brackets, often 5+ extra `]` characters. Other plugins may appear to be missing brackets.
+**Cause**: Plugin's `^1J` (screen assignment) is null or wrong, OR the plugin was accidentally nested inside another plugin's data during manual editing.
 
-**Cause**: When copying plugin definitions as templates, the footer+closing section (`]],"^1A",null,...,"^1L",null]]]`) gets duplicated. This adds 5 extra closing brackets to one plugin.
+**Check**: Verify each plugin's `^1J` field is set to the correct page ID (`"page1"` etc.).
 
-**Example of bug**:
-```
-// WRONG - duplicate footer (first one is incomplete, second is complete)
-"queryTimeout","10000","requireConfirmation",false,"type","GET"]],"^1A",null,...,"^1L",null]]],"queryTimeout","10000","workflowId",...
-                                                              ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
-                                                              This entire section is a duplicate and should be removed
-```
+### Validation Script
 
-**Detection**: Look for `]]],"queryTimeout"` or `]]],"<any-template-prop>"` patterns - the footer should only be followed by the next plugin name, not more template properties.
-
-#### 4. Cross-Plugin Bracket Compensation
-
-**Symptom**: Global bracket count is balanced, but individual plugins have mismatched brackets. Retool import may fail with cryptic errors or silently drop plugins.
-
-**Cause**: When one plugin is missing content (fewer closing brackets), another plugin has extra content (more closing brackets). The errors cancel out globally but break the nesting structure.
-
-**Example**:
-```
-Plugin A: 23 open, 18 close  ← Missing 5 closing brackets
-Plugin B: 17 open, 22 close  ← Has 5 extra closing brackets
-Total:    40 open, 40 close  ← LOOKS BALANCED but is BROKEN
-```
-
-**How to detect**: Always check bracket balance PER PLUGIN, not just globally. Use the enhanced validation script below.
-
-### Per-Plugin Bracket Balance
-
-**IMPORTANT**: Each plugin must have balanced brackets INDIVIDUALLY. A globally balanced file can still be broken if brackets are misallocated between plugins.
-
-#### How to Extract and Validate Individual Plugins
-
-```python
-import re
-
-def extract_plugin_content(app_state, plugin_name):
-    """Extract the content of a single plugin from appState."""
-    # Find plugin start
-    start_pattern = f'"{plugin_name}",["^0"'
-    start_idx = app_state.find(start_pattern)
-    if start_idx == -1:
-        return None
-
-    # Find next sibling plugin (or end)
-    # Look for pattern: ]]],"pluginName",["^0"
-    next_plugin = re.search(r'\]\]\],"([a-zA-Z][a-zA-Z0-9_]+)",\["\^0"', app_state[start_idx+10:])
-
-    if next_plugin:
-        end_idx = start_idx + 10 + next_plugin.start() + 3  # Include the ]]]
-    else:
-        # Last plugin - find the closing ]]] before "]
-        end_idx = app_state.find(']]]"]', start_idx) + 3
-
-    return app_state[start_idx:end_idx]
-
-def check_plugin_brackets(app_state, plugin_name):
-    """Check if a plugin has balanced brackets."""
-    content = extract_plugin_content(app_state, plugin_name)
-    if not content:
-        return None, None, "Plugin not found"
-
-    opens = content.count('[')
-    closes = content.count(']')
-
-    if opens == closes:
-        return opens, closes, "✓ Balanced"
-    elif opens > closes:
-        return opens, closes, f"✗ Missing {opens - closes} closing bracket(s)"
-    else:
-        return opens, closes, f"✗ Has {closes - opens} extra closing bracket(s)"
-```
-
-### Validation Script (Enhanced)
-
-Use this Python script to validate Transit structure before import:
+Use this Python script to validate Transit structure before import. It uses JSON parsing (not regex) to navigate the actual structure:
 
 ```python
 import json
-import re
 
 def validate_retool_json(filepath):
     with open(filepath) as f:
-        data = json.load(f)
+        outer = json.load(f)
 
-    app_state = data['page']['data']['appState']
+    # Check 1: outer JSON structure
+    app_state = outer['page']['data']['appState']
+    print("[1] Outer JSON: VALID")
 
-    # Verify appState is valid JSON
+    # Check 2: appState is valid JSON
     try:
-        json.loads(app_state)
+        transit = json.loads(app_state)
+        print("[2] appState JSON: VALID")
     except json.JSONDecodeError as e:
-        print(f"CRITICAL: appState is not valid JSON: {e}")
+        print(f"[2] CRITICAL: appState is not valid JSON: {e}")
         return False
 
-    # Find all plugin definitions
-    plugins = re.findall(r'"([a-zA-Z][a-zA-Z0-9_]+)",\["\^0"', app_state)
+    # Check 3: Transit root
+    assert transit[0] == '~#iR', f"Expected ~#iR root, got {transit[0]}"
+    print("[3] Transit root ~#iR: OK")
 
-    print(f"Found {len(plugins)} plugins: {plugins}")
-    print()
+    # Find plugins iOM
+    def find_iom(obj, depth=0):
+        if depth > 10: return None
+        if isinstance(obj, list):
+            if len(obj) >= 2 and obj[0] == '~#iOM':
+                return obj[1]
+            for item in obj:
+                r = find_iom(item, depth+1)
+                if r: return r
+        return None
 
+    plugins_list = find_iom(transit)
+    assert plugins_list, "Could not find ~#iOM plugins map"
+    plugin_count = (len(plugins_list) - 1) // 2
+    print(f"[4] Plugins iOM: OK ({plugin_count} plugins)")
+
+    # Check 5: Each plugin wrapper format and bracket balance
     errors = []
-    warnings = []
+    print("[5] Per-plugin checks:")
+    for i in range(1, len(plugins_list), 2):
+        pid = plugins_list[i]
+        pdata = plugins_list[i+1]
+        pjson = json.dumps(pdata)
 
-    # Check 1: Sibling pattern (]]]," before each plugin)
-    for plugin in plugins:
-        idx = app_state.find(f'"{plugin}",["^0"')
-        before = app_state[idx-15:idx]
+        # Wrapper format
+        if not (isinstance(pdata, list) and len(pdata) == 2 and pdata[0] == '^0'):
+            errors.append(f"{pid}: Wrong wrapper — expected ['^0', [...]]")
+            print(f"  {pid}: ✗ WRONG WRAPPER FORMAT")
+            continue
 
-        if ']]],"' not in before and idx > 100:
-            bracket_count = before.count(']')
-            if bracket_count > 3:
-                errors.append(f'{plugin}: Found {bracket_count} brackets before - missing footer in previous plugin')
-            elif bracket_count < 3:
-                errors.append(f'{plugin}: Found only {bracket_count} brackets before - previous plugin may have extra content')
+        inner = pdata[1]
+        has_n_v = isinstance(inner, list) and 'n' in inner and 'v' in inner
+        if not has_n_v:
+            errors.append(f"{pid}: Missing n/v wrapper inside ^0 record")
+            print(f"  {pid}: ✗ MISSING n/v WRAPPER")
+            continue
 
-    # Check 2: Per-plugin bracket balance
-    print("Per-plugin bracket balance:")
-    for i, plugin in enumerate(plugins):
-        content = extract_plugin_content(app_state, plugin)
-        if content:
-            opens = content.count('[')
-            closes = content.count(']')
-            status = "✓" if opens == closes else "✗"
-            diff = opens - closes
+        # Bracket balance per plugin
+        opens = pjson.count('[')
+        closes = pjson.count(']')
+        bal = opens - closes
+        bal_str = "✓" if bal == 0 else f"✗ IMBALANCED ({bal:+d})"
 
-            print(f"  {plugin}: [{opens}/{closes}] {status}")
+        # Footer fields
+        has_1j = '"^1J"' in pjson
+        has_1l = '"^1L"' in pjson
+        footer_str = "✓" if (has_1j and has_1l) else "✗ MISSING FOOTER"
 
-            if diff != 0:
-                if diff > 0:
-                    errors.append(f'{plugin}: Missing {diff} closing bracket(s)')
-                else:
-                    errors.append(f'{plugin}: Has {-diff} extra closing bracket(s)')
+        print(f"  {pid}: brackets={bal_str}, footer={footer_str}")
 
-    # Check 3: Footer field presence
-    print()
-    print("Footer field presence:")
-    for plugin in plugins:
-        content = extract_plugin_content(app_state, plugin)
-        if content:
-            has_footer = '"^1L",null]]]' in content or '"^1L",null]],' in content
-            status = "✓" if has_footer else "✗ MISSING"
-            print(f"  {plugin}: {status}")
-
-            if not has_footer:
-                errors.append(f'{plugin}: Missing footer fields (^1A through ^1L)')
-
-    # Check 4: Duplicate footer detection
-    for plugin in plugins:
-        content = extract_plugin_content(app_state, plugin)
-        if content:
-            footer_count = content.count('"^1L",null]]]')
-            if footer_count > 1:
-                errors.append(f'{plugin}: Has {footer_count} footer sections (duplicate detected)')
+        if bal != 0:
+            errors.append(f"{pid}: Bracket imbalance {bal:+d}")
+        if not has_1j or not has_1l:
+            errors.append(f"{pid}: Missing footer fields")
 
     print()
     if errors:
@@ -1495,32 +2079,12 @@ def validate_retool_json(filepath):
             print(f"  ✗ {e}")
         return False
 
-    if warnings:
-        print("WARNINGS:")
-        for w in warnings:
-            print(f"  ⚠ {w}")
-
     print("✓ Transit structure validated successfully")
+    print(f"  File size: {len(json.dumps(outer))} bytes")
     return True
 
-def extract_plugin_content(app_state, plugin_name):
-    """Extract the content of a single plugin from appState."""
-    start_pattern = f'"{plugin_name}",["^0"'
-    start_idx = app_state.find(start_pattern)
-    if start_idx == -1:
-        return None
-
-    next_plugin = re.search(r'\]\]\],"([a-zA-Z][a-zA-Z0-9_]+)",\["\^0"', app_state[start_idx+10:])
-
-    if next_plugin:
-        end_idx = start_idx + 10 + next_plugin.start() + 3
-    else:
-        end_idx = app_state.find(']]]"]', start_idx) + 3
-
-    return app_state[start_idx:end_idx]
-
 # Usage
-validate_retool_json('apps/my-app.json')
+validate_retool_json('apps/Time on site 2/samsara_trips_report.json')
 ```
 
 ---
@@ -1529,18 +2093,26 @@ validate_retool_json('apps/my-app.json')
 
 When generating a Retool app JSON:
 
-1. [ ] Valid UUID for app
-2. [ ] Proper Transit JSON encoding
-3. [ ] All components have unique IDs
-4. [ ] Queries defined before components that reference them
-5. [ ] Event handlers have valid target IDs
-6. [ ] Position2 values create proper layout
-7. [ ] Container references are valid
-8. [ ] Screen/page structure is complete
-9. [ ] Theme settings included if customized
-10. [ ] No comments in JSON (invalid syntax)
-11. [ ] **All plugins have complete footer fields (`^1A` through `^1L`)**
-12. [ ] **Bracket pattern `]]],"` before each sibling plugin**
-13. [ ] **Each plugin has balanced brackets individually (not just globally)**
-14. [ ] **No duplicate footer sections from copy-paste errors**
-15. [ ] **appState string is valid JSON when parsed (`json.loads(appState)` succeeds)**
+**Structure (mandatory)**:
+1. [ ] **Started from a real Retool-exported file as base — NEVER built appState from scratch**
+2. [ ] Built by Python-modifying the base file, not string concatenation
+3. [ ] `json.loads(outer_json)` succeeds
+4. [ ] `json.loads(app_state)` succeeds — appState is valid JSON
+5. [ ] Each plugin follows `["^0", ["^ ", "n", "pluginTemplate", "v", [...]]]` wrapper format
+6. [ ] Each plugin's v-map has all footer fields `^1A` through `^1L`
+7. [ ] Bracket balance = 0 for every individual plugin (not just global total)
+8. [ ] All components have unique IDs
+
+**Content**:
+9. [ ] Queries defined before components that reference them
+10. [ ] Event handlers have valid target IDs
+11. [ ] Position2 values create valid layout (row, col, height, width)
+12. [ ] Container references point to existing frame IDs
+13. [ ] Screen/page assignment (`^1J`) set to correct page ID
+14. [ ] No comments in JSON (invalid syntax)
+
+**Widget-specific**:
+15. [ ] TableWidget2 uses `_columnIds` + separate maps (not `columns` array)
+16. [ ] Table cell expressions use `currentSourceRow` (not `currentRow`)
+17. [ ] DateRangePickerWidget: `.startDate` / `.endDate` properties
+18. [ ] MultiselectWidget2: `.value` returns array

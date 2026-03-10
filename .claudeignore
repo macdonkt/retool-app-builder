@@ -1,0 +1,27 @@
+# ===========================================
+# .claudeignore - Scope Claude to active project only
+# ===========================================
+# Claude Code reads this like .gitignore and will
+# skip matching files when exploring the codebase.
+#
+# HOW TO USE PER PROJECT:
+# 1. Update the "!apps/YourProject/" line below
+#    to un-ignore your new active project folder
+# 2. That's it — everything else stays ignored
+# ===========================================
+
+# Ignore EVERYTHING in apps/ by default
+apps/*
+
+# UN-IGNORE the active project folder
+# >>> CHANGE THIS LINE when switching projects <<<
+!apps/Time on site 2/
+!apps/Time on site 2/**
+
+# --- Always ignore these everywhere ---
+*.DS_Store
+*.png
+.git/
+
+# --- Ignore stale root-level scripts ---
+generate_samsara_app.py

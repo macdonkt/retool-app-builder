@@ -2,9 +2,22 @@
 
 Build production-ready Retool apps from natural language instructions. Output valid JSON files for direct import into Retool.
 
+## Current Project
+
+<!-- UPDATE THIS SECTION each time you start a new build project -->
+**Active project folder**: `apps/Time on site 2/`
+**Reference files (if any)**: None — use only CLAUDE.md and RETOOL_JSON_REFERENCE.md
+
+### Scoping Rules
+- **ONLY read/write files inside the active project folder** listed above
+- **NEVER explore or read** JSON files outside the active project folder — they are old builds and irrelevant
+- **Reference docs** (this file + `RETOOL_JSON_REFERENCE.md`) are always in scope
+- When the user drops a reference JSON into the active project folder, use it as a structural example
+- The `.claudeignore` file enforces this at the file-discovery level, but follow these rules even if a file is technically visible
+
 ## Output Format
 
-Save all generated files to the `apps/` folder.
+Save all generated files to the active project folder (e.g., `apps/Time on site 2/`).
 
 When building apps, always output:
 
@@ -80,6 +93,135 @@ Navigation between pages with URL params for state management.
 ### Mobile App
 Native mobile components with camera, GPS, offline support.
 
+## Build Process (Step-by-Step)
+
+For complex apps, follow this structured workflow:
+
+### Phase 1: Discovery
+1. **Find/set up resources** - Identify existing database connections, APIs, or create new tables in Retool DB
+2. **Design UI wireframe** - Create a text-based component map before writing JSON
+
+### Phase 2: Specification
+3. **Create technical spec** - Document variables, queries, components, and data flows
+4. **Build implementation plan** - Break down into discrete, ordered tasks
+
+### Phase 3: Implementation
+5. **Create database tables** - Set up Retool DB tables with proper schemas
+6. **Create state variables** - Define app-level variables for state management
+7. **Create queries** - Build all data fetching and mutation queries
+8. **Build UI from wireframe** - Implement components following the wireframe
+9. **Wire data bindings** - Connect components to queries and variables
+10. **Set up event handlers** - Configure all interactions and query chains
+
+### Phase 4: Review
+11. **Validate structure** - Run Transit validation script
+12. **Review with user** - Confirm implementation meets requirements
+
+### Wireframe Format
+
+Before building, create a text wireframe mapping every component. Use `-` for list items and indentation for nesting:
+
+```
+MAIN PAGE STRUCTURE:
+- [Text] appTitle "# App Title" (row 2, col 0, width 10, height 6)
+- [Container] controlsContainer (row 11, col 0, width 12, height 11)
+  - [Button] actionButton "Action" (row 1, col 0, width 1, height 5)
+  - [Text] statusText "{{ status.value }}" (row 1, col 1, width 3, height 5)
+- [Container] sidebarContainer (row 24, col 0, width 3, height 80)
+  - [Text] sidebarTitle "#### Sidebar" (row 0, col 0, width 12, height 4)
+  - [Button] addButton "Add New" (row 4, col 0, width 12, height 5)
+  - [Text] listItems "{{ items.value.map(i => `• ${i.name}`).join('\\n') }}" (row 10, col 0, width 12, height 60)
+- [Container] mainContainer (row 24, col 3, width 9, height 80)
+  - [Text Area] inputArea "Enter content..." (row 5, col 0, width 12, height 8)
+  - [Button] submitButton "Submit" (row 14, col 0, width 2, height 5)
+  - [Table] resultsTable "" (row 20, col 0, width 12, height 54)
+
+FRAMES STRUCTURE:
+- [Modal Frame] editModal
+  - [header]
+    - [Text] modalTitle "#### Edit Item" (row 0, col 0, width 12, height 3)
+  - [body]
+    - [Text Input] nameInput "Name" (row 0, col 0, width 12, height 1)
+    - [Text Area] descInput "Description" (row 3, col 0, width 12, height 5)
+  - [footer]
+    - [Button] cancelButton "Cancel" (row 0, col 0, width 2, height 5)
+    - [Button] saveButton "Save" (row 0, col 2, width 2, height 5)
+```
+
+Format: `[WidgetType] componentId "label/placeholder" (row, col, width, height)`
+
+**Notes:**
+- Use markdown in text values: `"# Heading"`, `"#### Subheading"`, `"**bold**"`
+- Include dynamic bindings: `"{{ variable.value }}"`
+- Modal frames have header/body/footer sections
+- Heights are in row units (5 = standard button height)
+
+### Technical Spec Format
+
+Document the app architecture before implementation using this state diagram format:
+
+```
+stateDiagram-v2
+
+%% Variables
+lastSyncTime: "Variable -- stores timestamp of last successful sync"
+syncStatus: "Variable -- stores current sync status message"
+savedItems: "Variable -- array of saved items with name, config"
+currentValue: "Variable -- stores the current working value"
+
+%% Queries
+fetchData: "RESTQuery -- fetches data from external API"
+syncToDatabase: "JavascriptQuery -- syncs external data to Retool DB"
+processWithAI: "JavascriptQuery -- uses AI to process user input"
+executeAction: "SqlQuery -- executes the generated action against Retool DB"
+saveToStorage: "JavascriptQuery -- saves current state to variable"
+
+%% UI Components - Controls
+actionButton: "Button -- triggers main action"
+statusText: "Text -- displays current status"
+
+%% UI Components - Input
+userInput: "Text Area -- user enters input"
+submitButton: "Button -- triggers processing"
+outputDisplay: "Text Area -- displays processed output"
+
+%% UI Components - Results
+resultsTable: "Table -- displays results"
+resultsCount: "Text -- shows count of results"
+
+%% Data Flow - Auto Load
+fetchData --> syncToDatabase : onSuccess
+syncToDatabase --> lastSyncTime : onSuccess
+syncToDatabase --> syncStatus : onSuccess
+
+%% Data Flow - User Action
+userInput --> processWithAI
+submitButton --> processWithAI : onClick
+processWithAI --> outputDisplay
+processWithAI --> currentValue
+
+%% Data Flow - Execution
+outputDisplay --> executeAction
+runButton --> executeAction : onClick
+executeAction --> resultsTable
+executeAction --> resultsCount
+
+%% Data Flow - Save/Load
+saveButton --> saveToStorage : onClick
+currentValue --> saveToStorage
+saveToStorage --> savedItems
+savedItems --> itemsList
+itemsList --> loadItem : onClick
+loadItem --> userInput
+loadItem --> currentValue
+```
+
+**Spec Sections:**
+- `%% Variables` - State slots with descriptions
+- `%% Queries` - All queries with type and purpose
+- `%% UI Components - [Group]` - Components organized by function
+- `%% Data Flow - [Feature]` - How data moves through the app
+
 ## Requirements Gathering
 
 Before building, clarify these details:
@@ -129,6 +271,47 @@ When an app requires workflows:
 
 Common workflow triggers: form submissions, scheduled syncs, external webhooks, complex multi-step automations.
 
+## State Management
+
+### App-Level Variables
+
+Use Retool variables (state slots) for:
+- **Sync timestamps**: Track when data was last refreshed
+- **Status messages**: Display current operation state to users
+- **Saved configurations**: Store user preferences, saved views, filter states
+- **Computed results**: Cache expensive calculations or AI-generated content
+- **Current selections**: Track selected items across components
+
+### Variable Naming Convention
+
+```
+lastSyncTime      — timestamps
+syncStatus        — status/progress messages
+savedViews        — arrays of saved configurations
+currentSQL        — current working values
+sqlExplanation    — AI/computed explanations
+selectedRecord    — current selection state
+```
+
+### Query Chaining Patterns
+
+Document data flows explicitly:
+
+```
+%% Auto Sync on Load
+fetchData → syncToDatabase.onSuccess
+syncToDatabase → lastSyncTime (update on success)
+syncToDatabase → syncStatus (update on success)
+syncToDatabase → refreshTable (trigger on success)
+
+%% User Action Flow
+userInput → generateQuery.onClick
+generateQuery → generatedOutput (on success)
+generateQuery → explanationText (on success)
+executeButton → runQuery.onClick
+runQuery → resultsTable (on success)
+```
+
 ## Technical Notes
 
 **Data Binding**:
@@ -150,3 +333,54 @@ Common workflow triggers: form submissions, scheduled syncs, external webhooks, 
 - Use query caching for frequently accessed data
 - Implement server-side pagination for large datasets
 - Monitor AI/LLM usage costs
+
+## Wireframe Component Notation
+
+When creating wireframes, use this detailed notation for each component:
+
+### Basic Format
+```
+[WidgetType] componentId "visible text/label" (row X, col Y, width W, height H)
+```
+
+### Component Type Abbreviations
+| Notation | Widget Type |
+|----------|-------------|
+| `[Text]` | TextWidget2 |
+| `[Button]` | ButtonWidget2 |
+| `[TextInput]` | TextInputWidget2 |
+| `[TextArea]` | TextAreaWidget |
+| `[Select]` | SelectWidget2 |
+| `[Table]` | TableWidget2 |
+| `[Container]` | ContainerWidget2 |
+| `[Modal]` | ModalFrameWidget |
+| `[Form]` | FormWidget2 |
+| `[Tabs]` | TabsWidget2 |
+
+### Nested Components
+Indent children under their parent container:
+```
+[Container] mainContainer (row 0, col 0, width 12, height 8)
+  [Text] title "Dashboard" (row 0, col 0, width 6, height 1)
+  [Button] refreshBtn "Refresh" (row 0, col 10, width 2, height 1)
+  [Table] dataTable (row 1, col 0, width 12, height 6)
+```
+
+### Special Annotations
+```
+[Modal] editModal "Edit Record" (hidden)     ← starts hidden
+[Button] deleteBtn "Delete" (danger)          ← danger style variant
+[TextInput] emailInput (required, email)      ← validation rules
+[Container] adminSection (hidden: !isAdmin)   ← conditional visibility
+```
+
+### Frame Structure
+```
+FRAMES STRUCTURE:
+- [Main frame] $main
+  - Components in main content area
+- [Header frame] $header (optional)
+  - App title, navigation
+- [Modal] modalName (hidden)
+  - Modal content
+```
