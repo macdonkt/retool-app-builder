@@ -546,11 +546,12 @@ def extract_patterns(input_path):
             _collect_events(template, plugin_id, plugin_subtype, "datasource")
 
         elif plugin_type == "state":
-            if plugin_subtype and plugin_subtype not in state_templates:
-                state_templates[plugin_subtype] = {
-                    "example_id": plugin_id,
-                    "template": template
-                }
+            screen = _get_field_resolved(plugin_tmap, "screen", cache)
+            state_templates[plugin_id] = {
+                "subtype": plugin_subtype,
+                "template": template,
+                "screen": screen  # None = global, "page1" = page-scoped
+            }
 
         elif plugin_type == "frame":
             frame_templates[plugin_id] = {
@@ -573,7 +574,7 @@ def extract_patterns(input_path):
             "total_plugins": plugin_count,
             "widget_subtypes": len(widget_templates),
             "query_subtypes": len(query_templates),
-            "state_subtypes": len(state_templates),
+            "state_variables": len(state_templates),
             "event_patterns_found": len(event_patterns),
             "cache_keys_discovered": len(cache_key_map),
             "note": "Cache keys are POSITIONAL and specific to this file. Do NOT hardcode them. Use full field names in the builder library instead."
@@ -619,6 +620,7 @@ def main():
         print(f"\nOutput written to: {output_path}")
         print(f"  Widget subtypes: {result['_meta']['widget_subtypes']}")
         print(f"  Query subtypes:  {result['_meta']['query_subtypes']}")
+        print(f"  State variables: {result['_meta']['state_variables']}")
         print(f"  Cache keys:      {result['_meta']['cache_keys_discovered']}")
         print(f"  Event patterns:  {len(result['event_patterns'])}")
 
