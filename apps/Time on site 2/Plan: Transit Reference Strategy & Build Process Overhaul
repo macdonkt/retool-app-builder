@@ -1,0 +1,147 @@
+Plan: Transit Reference Strategy & Build Process Overhaul
+Context
+We've been hitting Transit encoding failures ("Tried to deserialize Record type named 'undefined'") because:
+
+Cache keys are positional, not stable. The components example file uses ^16=uuid, ^18=type, ^19=subtype. But the Samsara build scripts hardcode ^19=uuid, ^1;=type, ^1<=subtype. These differ because Transit assigns cache numbers based on order of first appearance in the serialized output. Every exported file can have different cache key assignments.
+
+RETOOL_JSON_REFERENCE.md documents the wrong cache keys — it documents the Samsara/hotel-search lineage keys, which don't match the components example file or any other independently exported app.
+
+String concatenation with hardcoded cache refs is inherently fragile — the generate_samsara_app.py approach breaks whenever the base file changes.
+
+Good news: The Tiller dashboard script (apps/tiller retool dashboard/generate_app.py) already solved this by using full field names (uuid, type, subtype, etc.) instead of cache refs. Retool's Transit reader handles both formats. This approach is immune to cache key drift.
+
+Also good news: The components example file already has 177 plugins across 102 widget subtypes — it IS a comprehensive kitchen sink app. The gaps are in queries/patterns, not widgets.
+
+Part 1: Enhance the Kitchen Sink App in Retool
+The components example covers 102 widget subtypes but is thin on queries, state, and event patterns. Add these to the app in Retool, then re-export:
+
+Add to the app:
+
+ 2-3 state variables (persistence: none, localStorage, urlHash)
+ A SQL query (RetoolTableQuery against Retool DB)
+ A REST query with headers and URL params
+ A JavaScript transformer that processes query data
+ A form with submit handler that triggers a query + shows success notification
+ An event handler chain: button click -> run query -> onSuccess set variable + show modal
+ A second page with navigation between pages
+ A table with action column (edit/delete buttons per row)
+After adding, export and replace apps/general references/components exmple.json.
+
+Re-export cadence: Only when:
+
+A Retool version update changes Transit format (check changelog quarterly)
+You need a widget type not currently in the file
+An import fails with a new error pattern
+No need for weekly re-exports — Transit format changes are rare.
+
+Part 2: Create Shared Builder Library
+Extract the Tiller script's helpers into a reusable module.
+
+File: tools/retool_builder.py
+
+Source: [generate_app.py](apps/tiller retool dashboard/generate_app.py) lines 27-200
+
+Functions to extract:
+
+tmap(*args) — Transit map ["^ ", k1, v1, ...]
+tom(*args) — Transit ordered map ["~#iOM", [...]]
+tlist(items) — Transit list ["~#iL", [...]]
+record(name, value) — Transit record ["~#iR", ...]
+pos(row, col, height, width, container, screen) — Position builder
+widget(id, subtype, template, position, ...) — Widget plugin
+query(id, subtype, template, resource, ...) — Query plugin
+state_var(id, value, persistence) — State variable plugin
+screen_plugin(id, title, slug, order) — Screen plugin
+frame_plugin(id, screen, frame_type) — Frame plugin
+build_app(plugins, app_config) — Assemble full appState from plugin list
+save_app(app_state, output_path, app_name) — Wrap in outer JSON + write
+Add new convenience builders:
+
+evt_trigger_query(query_id) — Event handler that triggers a query
+evt_show_frame(frame_id) — Event handler to show modal/drawer
+evt_set_var(var_id, value) — Event handler to set a state variable
+evt_chain(events) — Chain multiple event handlers
+table_columns(col_defs) — Build _columnIds + column maps from a simple list of {key, title, format, ...} dicts
+notification(type, title, description) — Success/error notification
+Usage pattern for new apps:
+
+from tools.retool_builder import *
+
+plugins = [
+    screen_plugin("page1", "Dashboard", "dashboard", 0),
+    frame_plugin("$main", "page1", "main"),
+    widget("title", "TextWidget2", tom("value", "# Dashboard", "heightType", "auto"),
+           pos(0, 0, 4, 12, "$main", "page1"), screen="page1"),
+    query("fetchData", "RESTQuery", tom(...), resource_uuid="...", screen="page1"),
+]
+app = build_app(plugins)
+save_app(app, "apps/my-app/my-app.json", "My App")
+Part 3: Transit Pattern Extraction Script
+File: tools/extract_transit_patterns.py
+
+Parses the components example file and outputs a structured reference of every widget template, query template, and event handler pattern found.
+
+What it extracts:
+
+Cache key resolution map for this specific file (for documentation only)
+Widget templates by subtype — the full template ordered map for each of the 102 subtypes, with keys decoded to full field names
+Query templates by subtype — same for the 2 query types present
+Event handler patterns — all unique event handler structures found
+Position examples — how different widget types are positioned
+Output: tools/transit_patterns.json
+
+How it's used:
+
+As documentation (what properties does a SelectWidget2 need?)
+By the builder library (template factories can load defaults from this file)
+As a diff baseline (re-run after re-export to see what changed)
+Part 4: Validation Script
+File: tools/validate_retool_json.py
+
+Post-generation validation that catches errors before Retool import:
+
+Outer JSON structure valid (uuid, page.data.appState)
+appState parses as valid JSON
+Root is ["~#iR", ...] record
+Plugins iOM exists and is non-empty
+At least one Screen and one Frame plugin present
+Every widget has a position2 record
+Every widget has type, subtype, id, template
+No duplicate plugin IDs
+Container references point to existing frames
+Screen references point to existing screens
+Usage: python3 tools/validate_retool_json.py apps/my-app/output.json
+
+Part 5: Update Documentation
+RETOOL_JSON_REFERENCE.md changes:
+Remove the hardcoded cache key mapping table (it's wrong/misleading for other files)
+Add a warning that cache keys are positional and file-specific
+Add the full-field-names approach as the recommended build method
+Update build examples to use tools/retool_builder.py imports
+Keep widget type list, query type docs, positioning docs, event handler docs
+CLAUDE.md changes:
+Update build process to reference tools/retool_builder.py
+Add tools/validate_retool_json.py to the review phase
+Memory update:
+Update Transit cache key section to note they're positional/file-specific
+Add note about full-field-names approach being the standard
+Do We Need Local Developer Docs?
+No. The kitchen sink export file + extraction script is a better approach because:
+
+Retool docs describe the UI/API, not Transit JSON internals
+Transit encoding is reverse-engineered from exports, not documented by Retool
+The extraction script auto-generates accurate reference from real exports
+Diffing docs wouldn't catch Transit format changes anyway
+Verification
+Run extract_transit_patterns.py on current components example -> confirm it extracts all 102 subtypes
+Build a test app using retool_builder.py with a text widget, button, table, query, and state variable
+Run validate_retool_json.py on the output -> confirm it passes
+Import the test app into Retool -> confirm it loads without errors
+Rebuild the Samsara app using the new library (instead of string concatenation) -> confirm it imports correctly
+Implementation Order
+tools/retool_builder.py — extract from Tiller script + add convenience builders
+tools/extract_transit_patterns.py — parse components example
+tools/validate_retool_json.py — post-build validation
+Update RETOOL_JSON_REFERENCE.md — remove bad cache keys, document new approach
+Update MEMORY.md — correct the cache key assumptions
+(User action) Enhance kitchen sink app in Retool + re-export

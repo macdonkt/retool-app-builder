@@ -62,19 +62,45 @@ Key sections within appState:
 
 Retool uses Transit JSON, a format that compresses repeated string keys across the document.
 
-### ⚠️ CRITICAL: Never Build appState From Scratch
+### ⚠️ CRITICAL: Cache Keys Are Positional — Use Full Field Names Instead
 
-**Building appState from scratch will always fail** with:
-> "Failed import — Tried to deserialize Record type named 'undefined'"
+Transit compresses repeated strings by assigning them sequential cache slots (`^0`, `^1`, `^16`, etc.) based on their **order of first appearance** during serialization. This means:
 
-The Transit cache key assignments (`^0`, `^1;`, `^1M`, etc.) are established by the encoding sequence of the original file. Any hand-written file will have different cache slot assignments and the Retool reader will fail to resolve them.
+- **Different exported files assign different cache keys to the same field names**
+- The components example uses `^16`=uuid, `^18`=type, `^19`=subtype
+- The Samsara build used `^19`=uuid, `^1;`=type, `^1<`=subtype
+- **Never hardcode cache keys** — they will be wrong for any other base file
 
-**The only correct approach:**
-1. Start from a real Retool-exported JSON file (use a file from `apps/general references/` or a previous working build)
-2. Modify it in Python by navigating the parsed structure
-3. Re-serialize with `json.dumps(separators=(',', ':'))`
+### Recommended Approach: Full Field Names with `tools/retool_builder.py`
 
-See the [Building Apps by Modifying a Base File](#building-apps-by-modifying-a-base-file) section for the Python pattern.
+Retool's Transit reader accepts **both** cache refs and full field names. The builder library uses full names exclusively, making it immune to cache key drift:
+
+```python
+from tools.retool_builder import *
+
+plugins = [
+    ("page1", screen_plugin("page1", "Dashboard", "dashboard", 0)),
+    ("$main", frame_plugin("$main", "page1", "main")),
+    ("title", widget("title", "TextWidget2",
+        txt_tmpl("# Dashboard"),
+        pos(0, 0, 4, 12, "$main", "page1"),
+        screen="page1")),
+    ("fetchData", query("fetchData", "JavascriptQuery",
+        js_tmpl("return [{id: 1, name: 'Test'}]", run_on_load=True),
+        screen="page1")),
+]
+app = build_app(plugins)
+save_app(app, "apps/my-app/output.json", "My App")
+
+# Validate before import:
+# python3 tools/validate_retool_json.py apps/my-app/output.json
+```
+
+See [Building Apps with the Builder Library](#building-apps-with-the-builder-library) for full documentation.
+
+### Legacy Approach: Modifying a Base File
+
+If you need to modify an existing exported file (rather than building from scratch), see [Building Apps by Modifying a Base File](#building-apps-by-modifying-a-base-file). Note that this approach requires you to discover the cache keys for that specific file.
 
 ---
 
@@ -106,35 +132,35 @@ See the [Building Apps by Modifying a Base File](#building-apps-by-modifying-a-b
 ]]
 ```
 
-### Plugin Wrapper Format (REQUIRED)
+### Plugin Wrapper Format
 
-Every plugin value in the iOM **must** follow this exact structure:
+Every plugin in the iOM is a Transit record wrapping a pluginTemplate. Using full field names (recommended):
 
 ```
-["^0", ["^ ", "n", "pluginTemplate", "v",
+["~#iR", ["^ ", "n", "pluginTemplate", "v",
   ["^ ",
-    "id",   "pluginId",
-    "^19",  null,             // uuid
-    "^1:",  null,             // _comment
-    "^1;",  "widget",         // type: "widget" | "datasource" | "frame" | "screen"
-    "^1<",  "ButtonWidget2",  // subtype (widget class name)
-    "^1=",  null,             // namespace
-    "^1>",  null,             // resourceName ("Samsara", "JavascriptQuery", etc.)
-    "^1?",  null,             // resourceDisplayName
-    "^1@",  ["^1M", [...]],   // template (settings map)
-    "^1A",  ["^1M", []],      // style (["^1M", []] for widgets; null for queries)
-    "^1B",  [position2],      // position2 (see below; null for queries)
-    "^1C",  null,             // mobilePosition2
-    "^1D",  null,             // mobileAppPosition
-    "^1E",  null,             // tabIndex
-    "^1F",  "$main",          // container (parent frame ID)
-    "^7",   "~m1769620000000", // createdAt
-    "^1G",  "~m1769620000000", // updatedAt
-    "^1H",  "",               // folder
-    "^1I",  null,             // presetName
-    "^1J",  "page1",          // screen (page assignment)
-    "^1K",  null,             // boxId
-    "^1L",  null              // subBoxIds
+    "id",                    "pluginId",
+    "uuid",                  "random-uuid-string",
+    "_comment",              null,
+    "type",                  "widget",          // "widget" | "datasource" | "frame" | "screen" | "state"
+    "subtype",               "ButtonWidget2",   // widget class name
+    "namespace",             null,
+    "resourceName",          null,              // resource UUID for queries
+    "resourceDisplayName",   null,              // display name for queries
+    "template",              ["~#iOM", [...]],  // settings ordered map
+    "style",                 null,
+    "position2",             [position record], // grid position (null for queries)
+    "mobilePosition2",       null,
+    "mobileAppPosition",     null,
+    "tabIndex",              null,
+    "container",             "$main",           // parent frame ID
+    "createdAt",             "~m1769620000000",
+    "updatedAt",             "~m1769620000000",
+    "folder",                "",
+    "presetName",            null,
+    "screen",                "page1",           // page assignment
+    "boxId",                 null,
+    "subBoxIds",             null
   ]
 ]]
 ```
@@ -142,62 +168,168 @@ Every plugin value in the iOM **must** follow this exact structure:
 ### Position2 Format
 
 ```
-["^0", ["^ ", "n", "position2", "v",
+["~#iR", ["^ ", "n", "position2", "v",
   ["^ ",
-    "^1;", "grid",    // type = "grid"
-    "^1F", "$main",   // container (parent frame)
-    "^1N", "body",    // rowGroup: "body" | "header" | "footer"
-    "^1O", "",        // subcontainer
-    "row", 0,         // grid row (literal key)
-    "col", 0,         // grid column (literal key)
-    "^1P", 5,         // height (row units)
-    "^1Q", 12,        // width (columns, 1–12)
-    "^1R", 0,         // tabNum
-    "^1S", null       // stackPosition
+    "type",          "grid",
+    "container",     "$main",   // parent frame
+    "rowGroup",      "body",    // "body" | "header" | "footer"
+    "subcontainer",  "",
+    "row",           0,         // grid row
+    "col",           0,         // grid column
+    "height",        5,         // row units
+    "width",         12,        // columns (1–12)
+    "tabNum",        0,
+    "stackPosition", null
   ]
 ]]
 ```
 
-### Confirmed Transit Cache Key Reference
+### ⚠️ Cache Key Reference (File-Specific — DO NOT Hardcode)
 
-These cache ref → field name mappings are confirmed from real Retool-exported files:
+Exported Retool files use cache refs (e.g., `^16`, `^1;`) instead of full field names. These mappings are **positional and vary between files**. Use `tools/extract_transit_patterns.py` to discover the mappings for any specific file.
 
-| Cache Ref | Field / Meaning | Notes |
-|-----------|----------------|-------|
-| `^0` | pluginTemplate record type | Outer plugin wrapper + position2 wrapper |
-| `^7` | `createdAt` | Timestamp field |
-| `^19` | `uuid` | Plugin UUID |
-| `^1:` | `_comment` | Always null |
-| `^1;` | `type` | Also reused as `"grid"` key in position |
-| `^1<` | `subtype` | Widget/query class name |
-| `^1=` | `namespace` | Usually null |
-| `^1>` | `resourceName` | e.g. `"Samsara"`, `"JavascriptQuery"` |
-| `^1?` | `resourceDisplayName` | |
-| `^1@` | `template` | Settings map |
-| `^1A` | `style` | `["^1M", []]` for widgets, null for queries |
-| `^1B` | `position2` | Grid position wrapper |
-| `^1C` | `mobilePosition2` | null |
-| `^1D` | `mobileAppPosition` | null |
-| `^1E` | `tabIndex` | null |
-| `^1F` | `container` | Parent frame ID (also reused in position2) |
-| `^1G` | `updatedAt` | Timestamp |
-| `^1H` | `folder` | Empty string `""` |
-| `^1I` | `presetName` | null |
-| `^1J` | `screen` | Page assignment, e.g. `"page1"` |
-| `^1K` | `boxId` | null |
-| `^1L` | `subBoxIds` | null |
-| `^1M` | Inner map type marker | Used as `["^1M", [...]]` for template/column maps |
-| `^1N` | `rowGroup` (in position) | `"body"` \| `"header"` \| `"footer"` |
-| `^1O` | `subcontainer` (in position) | Empty string |
-| `^1P` | `height` (in position) | Row units |
-| `^1Q` | `width` (in position) | Grid columns (1–12) |
-| `^1R` | `tabNum` (in position) | `0` |
-| `^1S` | `stackPosition` (in position) | null |
-| `^A` | Empty array | `["^A", []]` |
+Example mappings from `apps/general references/components exmple.json`:
+
+| Cache Ref | Field Name |
+|-----------|-----------|
+| `^0` | `~#iR` (record type tag) |
+| `^16` | `uuid` |
+| `^17` | `_comment` |
+| `^18` | `type` |
+| `^19` | `subtype` |
+| `^1:` | `namespace` |
+| `^1;` | `resourceName` |
+| `^1<` | `resourceDisplayName` |
+| `^1=` | `template` |
+| `^1>` | `style` |
+
+Run `python3 tools/extract_transit_patterns.py` to generate the full mapping for any export.
 
 ---
 
-## Building Apps by Modifying a Base File
+## Building Apps with the Builder Library
+
+**File:** `tools/retool_builder.py`
+
+### Quick Start
+
+```python
+from tools.retool_builder import *
+
+plugins = [
+    # Structure (required)
+    ("page1", screen_plugin("page1", "My App", "my-app", 0)),
+    ("$main", frame_plugin("$main", "page1", "main")),
+
+    # State variables
+    ("selectedId", state_var("selectedId", "", "none", "page1")),
+
+    # Widgets
+    ("title", widget("title", "TextWidget2",
+        txt_tmpl("# My App"),
+        pos(0, 0, 4, 12, "$main", "page1"), screen="page1")),
+
+    ("searchInput", widget("searchInput", "TextInputWidget2",
+        textinput_tmpl("Search", "Type to search..."),
+        pos(4, 0, 5, 6, "$main", "page1"), screen="page1")),
+
+    ("addBtn", widget("addBtn", "ButtonWidget2",
+        btn_tmpl("Add New", events=[
+            evt_show_frame("click", "editModal"),
+        ]),
+        pos(4, 6, 5, 3, "$main", "page1"), screen="page1")),
+
+    ("dataTable", widget("dataTable", "TableWidget2",
+        table_tmpl("{{ fetchData.data }}"),
+        pos(10, 0, 40, 12, "$main", "page1"), screen="page1")),
+
+    # Queries
+    ("fetchData", query("fetchData", "JavascriptQuery",
+        js_tmpl("return [{id: 1, name: 'Test'}]", run_on_load=True),
+        screen="page1")),
+]
+
+app = build_app(plugins)
+save_app(app, "apps/my-app/output.json", "My App")
+```
+
+### Available Functions
+
+**Transit Primitives:**
+- `tmap(*args)` — Transit map `["^ ", k1, v1, ...]`
+- `tom(*args)` — Transit ordered map `["~#iOM", [...]]`
+- `tlist(items)` — Transit list `["~#iL", [...]]`
+- `record(name, value)` — Transit record `["~#iR", ...]`
+
+**Plugin Builders:**
+- `widget(id, subtype, template, position, container, screen)` — Widget plugin
+- `query(id, subtype, template, resource_uuid, resource_name, screen)` — Query plugin
+- `state_var(id, value, persistence, screen)` — State variable (persistence: "none", "localStorage", "urlHash")
+- `screen_plugin(id, title, slug, order)` — Screen (page)
+- `frame_plugin(id, screen_id, frame_type)` — Frame (main, header, footer)
+- `modal_plugin(id, screen_id)` — Modal frame (starts hidden)
+- `pos(row, col, height, width, container, screen, row_group)` — Position
+
+**Event Handlers:**
+- `evt(event_type, src)` — Run JavaScript code
+- `evt_trigger_query(event_type, query_id)` — Trigger a named query
+- `evt_show_frame(event_type, frame_id)` — Show modal/drawer
+- `evt_hide_frame(event_type, frame_id)` — Hide modal/drawer
+- `evt_set_var(event_type, var_id, value_expr)` — Set state variable
+- `evt_notification(event_type, type, title, description)` — Show toast notification
+
+**Widget Templates:**
+- `txt_tmpl(value)` — TextWidget2
+- `btn_tmpl(text, events, variant, danger)` — ButtonWidget2
+- `textinput_tmpl(label, placeholder, value)` — TextInputWidget2
+- `textarea_tmpl(label, placeholder, value)` — TextAreaWidget
+- `select_tmpl(label, values, labels)` — SelectWidget2
+- `multiselect_tmpl(label, values, labels)` — MultiselectWidget2
+- `numberinput_tmpl(label, placeholder, value)` — NumberInputWidget
+- `container_tmpl(show_header, show_border, padding)` — ContainerWidget2
+- `table_tmpl(data, columns)` — TableWidget2
+- `chart_tmpl(data, chart_type, x_axis, y_axis)` — ChartWidget2
+- `stat_tmpl(value, caption, format_style)` — StatisticWidget2
+- `date_tmpl(label, value)` — DateWidget
+- `daterange_tmpl(label, start, end)` — DateRangeWidget
+- `tabs_tmpl(tab_names)` — TabsWidget2
+- `form_tmpl(events)` — FormWidget2
+
+**Query Templates:**
+- `js_tmpl(code, run_on_load, events)` — JavascriptQuery
+- `sql_tmpl(sql, run_on_load, success_msg, events)` — SQL query
+- `rest_tmpl(method, path, body, headers, run_on_load)` — REST API query
+- `ai_tmpl(prompt, model, system_prompt)` — RetoolAIQuery
+
+**App Assembly:**
+- `build_app(plugins, theme)` — Build full appState from (id, plugin) tuples
+- `save_app(app_state, output_path, app_name)` — Write to JSON file
+
+### Validation
+
+After generating, validate before importing:
+
+```bash
+python3 tools/validate_retool_json.py apps/my-app/output.json
+```
+
+### Pattern Extraction
+
+Extract widget/query templates from any Retool export:
+
+```bash
+python3 tools/extract_transit_patterns.py [input.json] [output.json]
+# Default: reads apps/general references/components exmple.json
+# Output:  tools/transit_patterns.json
+```
+
+Use the extracted patterns to see what template properties each widget type needs.
+
+---
+
+## Building Apps by Modifying a Base File (Legacy)
+
+> **Note:** This approach requires hardcoding cache keys specific to your base file. Prefer the builder library above for new apps.
 
 ### The Python Modification Pattern
 
