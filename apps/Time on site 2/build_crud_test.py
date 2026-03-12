@@ -156,17 +156,17 @@ plugins = [
     # --- Main Page Widgets ---
     ("appTitle", widget("appTitle", "TextWidget2",
         txt_tmpl("# Item Manager"),
-        pos(0, 0, 4, 8, "$main", "page1"),
+        pos(0, 0, 4, 8, "", "page1"),
         screen="page1")),
 
     ("appSubtitle", widget("appSubtitle", "TextWidget2",
         txt_tmpl("CRUD Dashboard Test"),
-        pos(0, 8, 4, 4, "$main", "page1"),
+        pos(0, 8, 4, 4, "", "page1"),
         screen="page1")),
 
     ("controlsBar", widget("controlsBar", "ContainerWidget2",
         container_tmpl(show_border=False, padding="0px"),
-        pos(5, 0, 7, 12, "$main", "page1"),
+        pos(5, 0, 7, 12, "", "page1"),
         screen="page1")),
 
     ("searchInput", widget("searchInput", "TextInputWidget2",
@@ -191,7 +191,7 @@ plugins = [
             actions=[edit_action, delete_action],
             events=table_events,
         ),
-        pos(13, 0, 50, 12, "$main", "page1"),
+        pos(13, 0, 50, 12, "", "page1"),
         screen="page1")),
 
     # --- Add/Edit Modal: Header ---
