@@ -1349,26 +1349,32 @@ def build_app(plugins, theme=None):
         Transit record representing the full appState
     """
     flat = []
+    screen_ids = []
     for id_, plugin_val in plugins:
         flat.append(id_)
         flat.append(plugin_val)
+        # Detect screen plugins to derive rootScreen and pageCodeFolders
+        try:
+            plugin_tmap = plugin_val[1][4]  # navigate into record -> tmap
+            pairs = plugin_tmap[1:]  # skip "^ "
+            for i in range(0, len(pairs), 2):
+                if pairs[i] == "type" and pairs[i + 1] == "screen":
+                    screen_ids.append(id_)
+                    break
+        except (IndexError, TypeError):
+            pass
     plugins_om = ["~#iOM", flat]
 
-    default_theme = theme or tmap(
-        "borderRadius", "8px",
-        "primary", "#2563eb",
-        "success", "#16a34a",
-        "danger", "#dc2626",
-        "warning", "#eab308",
-        "info", "#3b82f6",
-        "textDark", "#0f172a",
-        "textLight", "#ffffff",
-        "surfacePrimary", "#ffffff",
-        "surfaceSecondary", "#f8fafc",
-        "canvas", "#f1f5f9"
-    )
+    root_screen = screen_ids[0] if screen_ids else "page1"
+
+    # Build pageCodeFolders: tmap with each screen -> empty list
+    pcf_args = []
+    for sid in screen_ids:
+        pcf_args.extend([sid, []])
+    page_code_folders = tmap(*pcf_args) if pcf_args else tmap("page1", [])
 
     app_template = tmap(
+        "agentEvals", tmap(),
         "appMaxWidth", "100%",
         "appStyles", "",
         "appTesting", None,
@@ -1400,19 +1406,30 @@ def build_app(plugins, theme=None):
         "loadingIndicatorsDisabled", False,
         "markdownLinkBehavior", "auto",
         "mobileAppSettings", tmap("allowedOrientations", "all"),
+        "mobileOfflineAssets", [],
+        "multiScreenMobileApp", False,
         "notificationsSettings", tmap(
             "globalQueryShowFailureToast", True,
             "globalQueryShowSuccessToast", False,
             "globalQueryToastDuration", 4.5,
             "globalToastPosition", "bottomRight"
         ),
+        "pageCodeFolders", page_code_folders,
+        "pageLoadValueOverrides", tlist([]),
+        "persistUrlParams", False,
         "plugins", plugins_om,
-        "preloadedAppData", tmap(),
-        "releaseNotes", None,
-        "screens", tlist([]),
-        "selectedAccessGroup", None,
-        "showEditingInterface", True,
-        "theme", default_theme
+        "preloadedAppJSLinks", [],
+        "preloadedAppJavaScript", None,
+        "queryStatusVisibility", False,
+        "responsiveLayoutDisabled", False,
+        "rootScreen", root_screen,
+        "savePlatform", "web",
+        "serializedLayout", None,
+        "shortlink", None,
+        "testEntities", [],
+        "tests", [],
+        "urlFragmentDefinitions", tlist([]),
+        "version", "3.355.0"
     )
 
     return record("appTemplate", app_template)
