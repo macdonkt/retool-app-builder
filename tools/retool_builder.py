@@ -242,7 +242,7 @@ def frame_plugin(id_, screen_id, frame_type="main"):
     ))
 
 
-def modal_plugin(id_, screen_id):
+def modal_plugin(id_, screen_id, size="medium"):
     """Build a modal frame plugin record."""
     return record("pluginTemplate", tmap(
         "id", id_,
@@ -254,7 +254,53 @@ def modal_plugin(id_, screen_id):
         "resourceName", None,
         "resourceDisplayName", None,
         "template", tom(
-            "size", "medium",
+            "size", size,
+            "hideOnEscape", True,
+            "overlayInteraction", True,
+            "headerPadding", "8px 12px",
+            "showFooterBorder", True,
+            "enableFullBleed", False,
+            "isHiddenOnDesktop", False,
+            "showBorder", True,
+            "hidden", True,
+            "showHeader", True,
+            "padding", "8px 12px",
+            "showOverlay", True,
+            "isHiddenOnMobile", True,
+            "showHeaderBorder", True,
+            "footerPadding", "8px 12px",
+            "showFooter", True,
+            "events", []
+        ),
+        "style", None,
+        "position2", None,
+        "mobilePosition2", None,
+        "mobileAppPosition", None,
+        "tabIndex", None,
+        "container", "",
+        "createdAt", TS,
+        "updatedAt", TS,
+        "folder", "",
+        "presetName", None,
+        "screen", screen_id,
+        "boxId", None,
+        "subBoxIds", None
+    ))
+
+
+def drawer_plugin(id_, screen_id, width="medium"):
+    """Build a drawer frame plugin record."""
+    return record("pluginTemplate", tmap(
+        "id", id_,
+        "uuid", str(uuid.uuid4()),
+        "_comment", None,
+        "type", "frame",
+        "subtype", "DrawerFrameWidget",
+        "namespace", None,
+        "resourceName", None,
+        "resourceDisplayName", None,
+        "template", tom(
+            "width", width,
             "hideOnEscape", True,
             "overlayInteraction", True,
             "headerPadding", "8px 12px",
@@ -612,27 +658,228 @@ def container_tmpl(show_header=False, show_border=True, padding="8px"):
     )
 
 
-def table_tmpl(data, columns=None, show_search=True, show_pagination=True,
-               show_filter=True, show_download=True, events=None):
-    """TableWidget2 template (simplified — uses columns list, not iOM column maps)."""
-    return tom(
-        "selectedRowKey", None,
-        "showPagination", show_pagination,
-        "showSearch", show_search,
-        "showFilter", show_filter,
-        "showDownload", show_download,
-        "showRefresh", True,
-        "allowMultiRowSelect", False,
-        "data", data,
-        "columns", columns or [],
-        "events", events or [],
-        "rowHeight", "medium",
-        "striped", True,
-        "bordered", True,
-        "loading", False,
-        "hidden", False,
-        "maintainSpaceWhenHidden", False
+def table_col(key, label, fmt="string", size=100, editable=False, hidden="",
+              value_override="", alignment="left"):
+    """Define a table column. Returns a dict consumed by table_tmpl()."""
+    return {
+        "id": uuid.uuid4().hex[:5],
+        "key": key, "label": label, "format": fmt,
+        "size": size, "editable": "true" if editable else "",
+        "hidden": hidden, "value_override": value_override,
+        "alignment": alignment,
+    }
+
+
+def table_action(label, icon="bold/interface-edit-pencil"):
+    """Define a table row action. Returns a dict consumed by table_tmpl()."""
+    return {"id": uuid.uuid4().hex[:5], "label": label, "icon": icon}
+
+
+def _col_map(columns, field, default=""):
+    """Build a tom() from columns for a given field with a default value."""
+    args = []
+    for c in columns:
+        args.extend([c["id"], c.get(field, default)])
+    return tom(*args)
+
+
+def _col_map_const(columns, value):
+    """Build a tom() from columns with a constant value for all."""
+    args = []
+    for c in columns:
+        args.extend([c["id"], value])
+    return tom(*args)
+
+
+def _col_map_empty_obj(columns):
+    """Build a tom() from columns where each value is an empty tom()."""
+    args = []
+    for c in columns:
+        args.extend([c["id"], tom()])
+    return tom(*args)
+
+
+def _action_map(actions, field, default=""):
+    """Build a tom() from actions for a given field."""
+    args = []
+    for a in actions:
+        args.extend([a["id"], a.get(field, default)])
+    return tom(*args)
+
+
+def table_tmpl(data, columns=None, actions=None, events=None,
+               row_height="medium", server_paginated=False,
+               primary_key=None, empty_message="No rows found"):
+    """TableWidget2 template with proper column maps matching Retool's iOM structure."""
+    cols = columns or []
+    acts = actions or []
+    col_ids = [c["id"] for c in cols]
+    act_ids = [a["id"] for a in acts]
+
+    # Standard toolbar buttons
+    tb_ids = ["tb_f", "tb_s", "tb_d", "tb_r"]
+    tb_type = tom("tb_f", "filter", "tb_s", "sort", "tb_d", "custom", "tb_r", "custom")
+    tb_label = tom("tb_f", "Filter", "tb_s", "Sort", "tb_d", "Download", "tb_r", "Refresh")
+    tb_icon = tom(
+        "tb_f", "bold/interface-text-formatting-filter-2",
+        "tb_s", "bold/interface-arrows-vertical-expand-3",
+        "tb_d", "bold/interface-download-button-2",
+        "tb_r", "bold/interface-arrows-round-left"
     )
+    tb_hidden = tom("tb_f", "", "tb_s", "", "tb_d", "", "tb_r", "")
+
+    args = [
+        # Column maps
+        "_columnIds", col_ids,
+        "_columnKey", _col_map(cols, "key"),
+        "_columnLabel", _col_map(cols, "label"),
+        "_columnFormat", _col_map(cols, "format", "string"),
+        "_columnSize", _col_map(cols, "size", 100),
+        "_columnAlignment", _col_map(cols, "alignment", "left"),
+        "_columnEditable", _col_map(cols, "editable", ""),
+        "_columnHidden", _col_map(cols, "hidden", ""),
+        "_columnValueOverride", _col_map(cols, "value_override", ""),
+        "_columnTextColor", _col_map_const(cols, ""),
+        "_columnBackgroundColor", _col_map_const(cols, ""),
+        "_columnHeaderTextColor", _col_map_const(cols, ""),
+        "_columnHeaderBackgroundColor", _col_map_const(cols, ""),
+        "_columnAlternateRowBackgroundColor", _col_map_const(cols, ""),
+        "_columnCaption", _col_map_const(cols, ""),
+        "_columnIcon", _col_map_const(cols, ""),
+        "_columnPlaceholder", _col_map_const(cols, ""),
+        "_columnReferenceId", _col_map_const(cols, ""),
+        "_columnTooltip", _col_map_const(cols, ""),
+        "_columnCellTooltip", _col_map_const(cols, ""),
+        "_columnCellTooltipMode", _col_map_const(cols, "overflow"),
+        "_columnPosition", _col_map_const(cols, "center"),
+        "_columnSearchMode", _col_map_const(cols, "default"),
+        "_columnSortMode", _col_map_const(cols, "default"),
+        "_columnSortDisabled", _col_map_const(cols, False),
+        "_columnSummaryAggregationMode", _col_map_const(cols, "none"),
+        "_columnGroupAggregationMode", _col_map_const(cols, "none"),
+        "_columnEditableInNewRows", _col_map_const(cols, ""),
+        "_columnFormatOptions", _col_map_empty_obj(cols),
+        "_columnEditableOptions", _col_map_empty_obj(cols),
+        "_columnOptionList", _col_map_empty_obj(cols),
+        "_columnStatusIndicatorOptions", _col_map_empty_obj(cols),
+
+        # Action maps
+        "_actionIds", act_ids,
+        "_actionLabel", _action_map(acts, "label"),
+        "_actionIcon", _action_map(acts, "icon", "bold/interface-edit-pencil"),
+        "_actionHidden", _action_map(acts, "hidden", ""),
+        "_actionDisabled", _action_map(acts, "disabled", ""),
+        "_actionsOverflowPosition", 2,
+
+        # Toolbar
+        "_toolbarButtonIds", tb_ids,
+        "_toolbarButtonType", tb_type,
+        "_toolbarButtonLabel", tb_label,
+        "_toolbarButtonIcon", tb_icon,
+        "_toolbarButtonHidden", tb_hidden,
+        "_toolbarPosition", "bottom",
+
+        # Row config
+        "_rowHeight", row_height,
+        "_rowSelection", "single",
+        "_rowBackgroundColor", [],
+        "_showBorder", True,
+        "_showColumnBorders", False,
+        "_showHeader", True,
+        "_showFooter", False,
+        "_showSummaryRow", False,
+        "_showToolbar", True,
+
+        # Pagination
+        "_serverPaginated", server_paginated,
+        "_serverPaginationType", "cursorBased",
+        "_pageSize", 10,
+        "_templatePageSize", 10,
+        "_currentPage", 0,
+        "_primaryKeyColumnId", primary_key or (col_ids[0] if col_ids else ""),
+
+        # Selection state
+        "selectedRowKey", None,
+        "selectedRowKeys", [],
+        "selectedRow", tom(),
+        "selectedRows", [],
+        "selectedSourceRow", tom(),
+        "selectedSourceRows", [],
+        "selectedDataIndex", None,
+        "selectedDataIndexes", [],
+        "selectedCell", "",
+        "_selectedCell", tom(),
+        "_cellSelection", "none",
+
+        # Core props
+        "data", data,
+        "events", events or [],
+        "emptyMessage", empty_message,
+        "heightType", "auto",
+        "hidden", False,
+        "maintainSpaceWhenHidden", False,
+        "margin", "4px 8px",
+        "showInEditor", False,
+        "overflowType", "scroll",
+        "columnOrdering", col_ids,
+        "sortArray", [],
+        "filterStack", tom(),
+        "searchTerm", "",
+        "searchMode", "local",
+        "autoColumnWidth", False,
+        "caseSensitiveFiltering", False,
+        "changesetArray", [],
+        "changesetObject", tom(),
+        "newRows", [],
+        "disableEdits", False,
+        "disableSave", False,
+
+        # Misc
+        "_defaultSelectedRow", tom(),
+        "_defaultFilters", [],
+        "_defaultSort", [],
+        "_changeset", tom(),
+        "_clearChangeset", False,
+        "_clearChangesetOnSave", True,
+        "_enableSaveActions", False,
+        "_enableExpandableRows", False,
+        "_expandedRows", [],
+        "_expandedRowDataIndexes", [],
+        "_dynamicColumnsEnabled", False,
+        "_dynamicColumnSource", "",
+        "_dynamicColumnSize", 100,
+        "_dynamicColumnProperties", tom(),
+        "_dynamicColumnFormatOptions", tom(),
+        "_dynamicRowHeights", False,
+        "_disabledVirtualization", False,
+        "_headerTextWrap", False,
+        "_isAddingNewRows", False,
+        "_isSaving", False,
+        "_groupByColumns", [],
+        "_groupedColumnConfig", tom(),
+        "_persistRowSelection", False,
+        "_selectMultipleRowsOnActionClick", False,
+        "_selectSingleRowsOnActionClick", False,
+        "_alwaysShowRowSelectionCheckboxes", False,
+        "_includeRowInChangesetArray", False,
+        "_linkedFilterId", "",
+        "_afterCursor", "",
+        "_beforeCursor", "",
+        "_nextAfterCursor", "",
+        "_nextBeforeCursor", "",
+        "_hasNextPage", True,
+        "_limitOffsetRowCount", 0,
+        "_calculatedPageSize", 10,
+        "_cursorCache", tom(),
+        "_virtualizeStartIndex", 0,
+        "_virtualizeEndIndex", 50,
+        "overflowActionsOverlayMaxHeight", 350,
+        "overflowActionsOverlayMinWidth", 200,
+        "pagination", True,
+        "loading", False,
+        "isFetching", False,
+    ]
+    return tom(*args)
 
 
 def chart_tmpl(data, chart_type, x_axis, y_axis, title=""):
