@@ -730,7 +730,7 @@ def table_tmpl(data, columns=None, actions=None, events=None,
 
     args = [
         # Column maps
-        "_columnIds", col_ids,
+        "_columnIds", tlist(col_ids),
         "_columnKey", _col_map(cols, "key"),
         "_columnLabel", _col_map(cols, "label"),
         "_columnFormat", _col_map(cols, "format", "string"),
@@ -764,7 +764,7 @@ def table_tmpl(data, columns=None, actions=None, events=None,
         "_columnStatusIndicatorOptions", _col_map_empty_obj(cols),
 
         # Action maps
-        "_actionIds", act_ids,
+        "_actionIds", tlist(act_ids),
         "_actionLabel", _action_map(acts, "label"),
         "_actionIcon", _action_map(acts, "icon", "bold/interface-edit-pencil"),
         "_actionHidden", _action_map(acts, "hidden", ""),
@@ -772,7 +772,7 @@ def table_tmpl(data, columns=None, actions=None, events=None,
         "_actionsOverflowPosition", 2,
 
         # Toolbar
-        "_toolbarButtonIds", tb_ids,
+        "_toolbarButtonIds", tlist(tb_ids),
         "_toolbarButtonType", tb_type,
         "_toolbarButtonLabel", tb_label,
         "_toolbarButtonIcon", tb_icon,
@@ -813,7 +813,7 @@ def table_tmpl(data, columns=None, actions=None, events=None,
 
         # Core props
         "data", data,
-        "events", events or [],
+        "events", tlist(events or []),
         "emptyMessage", empty_message,
         "heightType", "auto",
         "hidden", False,
@@ -855,7 +855,7 @@ def table_tmpl(data, columns=None, actions=None, events=None,
         "_headerTextWrap", False,
         "_isAddingNewRows", False,
         "_isSaving", False,
-        "_groupByColumns", [],
+        "_groupByColumns", tlist([]),
         "_groupedColumnConfig", tom(),
         "_persistRowSelection", False,
         "_selectMultipleRowsOnActionClick", False,
