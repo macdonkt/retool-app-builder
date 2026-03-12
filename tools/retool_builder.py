@@ -270,7 +270,7 @@ def modal_plugin(id_, screen_id, size="medium"):
             "showHeaderBorder", True,
             "footerPadding", "8px 12px",
             "showFooter", True,
-            "events", []
+            "events", tlist([])
         ),
         "style", tom(),
         "position2", None,
@@ -316,7 +316,7 @@ def drawer_plugin(id_, screen_id, width="medium"):
             "showHeaderBorder", True,
             "footerPadding", "8px 12px",
             "showFooter", True,
-            "events", []
+            "events", tlist([])
         ),
         "style", tom(),
         "position2", None,
@@ -473,7 +473,7 @@ def btn_tmpl(text, events=None, variant="solid", disabled="", loading="", danger
         "styleVariant", "danger" if danger else variant,
         "submit", False,
         "iconBefore", "",
-        "events", events or [],
+        "events", tlist(events or []),
         "loading", loading if loading else False,
         "disabled", disabled if disabled else False,
         "maintainSpaceWhenHidden", False
@@ -511,7 +511,7 @@ def textinput_tmpl(label, placeholder, value=""):
         "placeholder", placeholder,
         "labelWidthUnit", "%",
         "invalid", False,
-        "events", [],
+        "events", tlist([]),
         "inputValue", "",
         "loading", False,
         "minLength", None,
@@ -550,7 +550,7 @@ def textarea_tmpl(label, placeholder, value="", height_type="fixed"):
         "placeholder", placeholder,
         "labelWidthUnit", "%",
         "invalid", False,
-        "events", [],
+        "events", tlist([]),
         "inputValue", "",
         "loading", False,
         "minLength", None,
@@ -586,7 +586,7 @@ def select_tmpl(label, values="[]", labels="[]", placeholder="Select...", events
         "placeholder", placeholder,
         "labelWidthUnit", "%",
         "invalid", False,
-        "events", events or [],
+        "events", tlist(events or []),
         "loading", False,
         "disabled", False,
         "required", False,
@@ -620,7 +620,7 @@ def numberinput_tmpl(label, placeholder="", value="", min_val=None, max_val=None
         "minimum", min_val,
         "maximum", max_val,
         "invalid", False,
-        "events", [],
+        "events", tlist([]),
         "loading", False,
         "disabled", False,
         "required", False,
@@ -649,7 +649,7 @@ def container_tmpl(show_header=False, show_border=True, padding="8px"):
         "showHeaderBorder", False,
         "showFooter", False,
         "_type", "grid",
-        "events", [],
+        "events", tlist([]),
         "loading", False,
         "overflowType", "scroll",
         "maintainSpaceWhenHidden", False,
@@ -954,7 +954,7 @@ def date_tmpl(label, value="", date_format="MMM d, yyyy"):
         "label", label,
         "labelWidthUnit", "%",
         "invalid", False,
-        "events", [],
+        "events", tlist([]),
         "disabled", False,
         "required", False
     )
@@ -983,7 +983,7 @@ def daterange_tmpl(label, start_value="", end_value="", date_format="MMM d, yyyy
         "label", label,
         "labelWidthUnit", "%",
         "invalid", False,
-        "events", [],
+        "events", tlist([]),
         "disabled", False,
         "required", False
     )
@@ -1013,7 +1013,7 @@ def multiselect_tmpl(label, values="[]", labels="[]", placeholder="Select...", e
         "placeholder", placeholder,
         "labelWidthUnit", "%",
         "invalid", False,
-        "events", events or [],
+        "events", tlist(events or []),
         "loading", False,
         "disabled", False,
         "required", False,
@@ -1030,7 +1030,7 @@ def tabs_tmpl(tab_names):
         "showInEditor", False,
         "tooltipText", "",
         "tabNames", tab_names,
-        "events", [],
+        "events", tlist([]),
         "maintainSpaceWhenHidden", False
     )
 
@@ -1050,7 +1050,7 @@ def form_tmpl(events=None):
         "footerPadding", "8px 12px",
         "showFooter", True,
         "showBody", True,
-        "events", events or [],
+        "events", tlist(events or []),
         "maintainSpaceWhenHidden", False
     )
 
@@ -1117,7 +1117,7 @@ def js_tmpl(code, run_on_load=False, events=None):
         "overrideOrgCacheForUserCache", False,
         "runWhenPageLoads", run_on_load,
         "transformer", "return data",
-        "events", events or [],
+        "events", tlist(events or []),
         "isMultiplayerEdited", False,
         "queryTimeout", "10000",
         "workflowId", None,
@@ -1205,7 +1205,7 @@ def sql_tmpl(sql, run_on_load=False, success_msg="", events=None):
         "bulkUpdatePrimaryKey", "",
         "runWhenPageLoads", run_on_load,
         "transformer", "return data",
-        "events", events or [],
+        "events", tlist(events or []),
         "tableName", "",
         "queryTimeout", "10000",
         "workflowId", None,
@@ -1292,7 +1292,7 @@ def rest_tmpl(method, path, body="", headers="", run_on_load=False, events=None)
         "overrideOrgCacheForUserCache", False,
         "runWhenPageLoads", run_on_load,
         "transformer", "return data",
-        "events", events or [],
+        "events", tlist(events or []),
         "isMultiplayerEdited", False,
         "queryTimeout", "10000",
         "workflowId", None,
@@ -1328,7 +1328,7 @@ def ai_tmpl(prompt, model="gpt-4", system_prompt=""):
         "prompt", prompt,
         "model", model,
         "systemPrompt", system_prompt,
-        "events", [],
+        "events", tlist([]),
         "error", None
     )
 
