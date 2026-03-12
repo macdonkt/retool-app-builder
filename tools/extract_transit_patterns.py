@@ -32,24 +32,165 @@ def _is_cache_ref(s):
     return isinstance(s, str) and len(s) >= 2 and s[0] == '^' and s != "^ "
 
 
+def _discover_type_tag_cache_refs(app_state, cache):
+    """
+    Discover cache refs for Transit type tags (~#iR, ~#iOM, ~#iM, ~#iL)
+    by finding pairs: a full tag at one location, and a cache ref at the
+    same structural role elsewhere.
+
+    Strategy: Walk the entire structure. Collect all full type tags seen.
+    For each unresolved cache ref that appears as a list marker (first
+    element of a 2-element list), find which full type tag it replaces
+    by checking the structure at the app level where full tags appear first.
+    """
+    # Step 1: Find full type tags and which cache refs follow them
+    # Transit assigns a cache slot to each type tag on first encounter.
+    # The NEXT time that same tag would appear, the cache ref is used instead.
+    # So we find all full tags in the app-level structure, then look for
+    # cache refs used in the same structural role in plugin data.
+
+    full_tags_seen = set()  # type tags with full names found in the structure
+    cache_ref_as_tags = {}  # cache_ref -> set of structural contexts
+
+    def _scan(obj, in_plugin_data=False):
+        if not isinstance(obj, list) or len(obj) == 0:
+            return
+        marker = obj[0]
+        if isinstance(marker, str):
+            if marker.startswith("~#"):
+                full_tags_seen.add(marker)
+            elif _is_cache_ref(marker) and marker not in cache and len(obj) == 2:
+                # This is a list marker that's a cache ref
+                # Record what kind of inner data it wraps
+                inner = obj[1]
+                if isinstance(inner, list):
+                    if len(inner) == 0:
+                        cache_ref_as_tags.setdefault(marker, set()).add("empty")
+                    elif inner[0] == "^ ":
+                        cache_ref_as_tags.setdefault(marker, set()).add("tmap")
+                    elif isinstance(inner[0], list):
+                        cache_ref_as_tags.setdefault(marker, set()).add("list_of_lists")
+                    else:
+                        cache_ref_as_tags.setdefault(marker, set()).add("flat_list")
+
+        for item in obj:
+            if isinstance(item, list):
+                _scan(item)
+
+    _scan(app_state)
+
+    # Step 2: For unresolved cache refs acting as type tags, infer the mapping
+    # ~#iR wraps a tmap (record)
+    # ~#iOM / ~#iM wrap key-value pair lists (ordered maps)
+    # ~#iL wraps plain lists (arrays)
+
+    for ref, contexts in cache_ref_as_tags.items():
+        if ref in cache:
+            continue
+
+        if "tmap" in contexts:
+            # Wraps a tmap → must be ~#iR
+            cache[ref] = "~#iR"
+        elif "list_of_lists" in contexts:
+            # Wraps a list of lists → must be ~#iL (list of items)
+            cache[ref] = "~#iL"
+        elif "flat_list" in contexts and "empty" in contexts:
+            # Wraps flat lists AND empty lists — could be ~#iL or ~#iOM
+            # Check if it's used where ~#iL was the original full tag
+            if "~#iL" in full_tags_seen and "~#iOM" in cache.values():
+                # ~#iOM is already mapped, and ~#iL was seen as full name
+                # → this is likely ~#iL
+                cache[ref] = "~#iL"
+        elif "flat_list" in contexts:
+            # Only flat lists — could be ~#iOM (k/v pairs) or ~#iL
+            # If ~#iL full tag was seen but no cache ref maps to it yet,
+            # this is likely ~#iL
+            il_mapped = any(v == "~#iL" for v in cache.values())
+            if not il_mapped and "~#iL" in full_tags_seen:
+                cache[ref] = "~#iL"
+        elif "empty" in contexts and len(contexts) == 1:
+            # Only empty usages — check if ~#iL needs mapping
+            il_mapped = any(v == "~#iL" for v in cache.values())
+            if not il_mapped and "~#iL" in full_tags_seen:
+                cache[ref] = "~#iL"
+
+
+def _discover_position_keys(items, cache):
+    """
+    Discover cache refs for position2 sub-fields (rowGroup, subcontainer,
+    height, width, tabNum, stackPosition) by comparing position2 data from
+    the first widget that uses full names vs later widgets that use cache refs.
+    """
+    first_pos_keys = None
+    for j in range(0, len(items) - 1, 2):
+        plugin_val = items[j + 1]
+        if not isinstance(plugin_val, list) or len(plugin_val) < 2:
+            continue
+        plugin_tmap = plugin_val[1][4]
+        pos_raw = _get_field_resolved(plugin_tmap, "position2", cache)
+        if not pos_raw or not isinstance(pos_raw, list) or len(pos_raw) < 2:
+            continue
+
+        # position2 is ["^0", ["^ ", "n", "position2", "v", inner_tmap]]
+        # inner_tmap is ["^ ", key, val, key, val, ...]
+        inner = pos_raw
+        if isinstance(inner[0], str) and (inner[0] == "~#iR" or cache.get(inner[0]) == "~#iR"):
+            inner = inner[1]
+        if not isinstance(inner, list) or inner[0] != "^ ":
+            continue
+
+        # Get the 'v' value from the record inner
+        v_val = None
+        pairs = inner[1:]
+        for pi in range(0, len(pairs) - 1, 2):
+            k = pairs[pi]
+            rk = cache.get(k, k) if _is_cache_ref(k) else k
+            if rk in ("v", "position2"):
+                # Sometimes 'n' key = 'position2', 'v' key = the actual data
+                v_val = pairs[pi + 1]
+                break
+
+        if v_val is None or not isinstance(v_val, list) or v_val[0] != "^ ":
+            continue
+
+        pos_pairs = v_val[1:]
+        # Check if this uses full names (no cache refs as keys)
+        has_full_names = any(
+            isinstance(pos_pairs[i], str) and not _is_cache_ref(pos_pairs[i])
+            and pos_pairs[i] not in ("type", "container")  # skip already-known keys
+            for i in range(0, len(pos_pairs) - 1, 2)
+        )
+
+        if has_full_names and first_pos_keys is None:
+            first_pos_keys = pos_pairs
+        elif first_pos_keys is not None:
+            # Compare this one with first to find cache mappings
+            for ki in range(0, min(len(first_pos_keys), len(pos_pairs)) - 1, 2):
+                k1 = first_pos_keys[ki]
+                k2 = pos_pairs[ki]
+                if isinstance(k1, str) and not _is_cache_ref(k1):
+                    if isinstance(k2, str) and _is_cache_ref(k2) and k2 not in cache:
+                        cache[k2] = k1
+            break  # One comparison is enough
+
+
 def build_cache_by_comparison(app_state):
     """
-    Build cache ref -> full name mapping by comparing the first plugin
-    (uses full names) with subsequent plugins (use cache refs) at matching
-    structural positions.
+    Build cache ref -> full name mapping using multiple strategies:
+
+    1. Positional comparison: Compare first vs second plugins at matching
+       positions to discover plugin-level field cache refs.
+    2. Structural inference: Scan entire structure for unresolved cache refs
+       and infer their Transit type based on the shape of data they wrap.
+    3. Position sub-key discovery: Compare position2 data across widgets
+       to find cache refs for position fields (rowGroup, height, width, etc).
     """
     cache = {}
 
-    # Root: ["~#iR", rec_inner]
-    # rec_inner: ["^ ", "n", "appTemplate", "v", app_tmap]
-    # We know ~#iR is the record tag. First plugin uses ^0 for it.
-    # So ^0 -> ~#iR (we'll verify by checking the first plugin's record tag)
-
     rec_inner = app_state[1]
-    app_tmap = rec_inner[4]  # appTemplate value
+    app_tmap = rec_inner[4]
 
-    # Find plugins iOM
-    pairs = app_tmap[1:]  # skip "^ "
+    pairs = app_tmap[1:]
     plugins_iom = None
     for i in range(0, len(pairs), 2):
         if pairs[i] == "plugins":
@@ -63,63 +204,34 @@ def build_cache_by_comparison(app_state):
     if len(items) < 4:
         return cache
 
-    # The FIRST plugin always uses full field names for its tmap keys
-    # Subsequent plugins use cache refs for repeated keys
-    # We align them by position to discover the mapping
+    # --- Strategy 1: Positional comparison of plugins ---
 
-    first_val = items[1]   # first plugin value (e.g., page1's record)
-    second_val = items[3]  # second plugin value (e.g., $main's record)
+    first_val = items[1]
+    second_val = items[3]
 
-    # Record tag: first_val[0] vs second_val[0]
-    # Both should be ^0 (since ~#iR was used at the root level already)
-    # But let's also check the root
     if _is_cache_ref(first_val[0]):
-        # The record tag was already cached before plugins
         cache[first_val[0]] = "~#iR"
 
-    # Record inner tmap keys
-    first_inner = first_val[1]   # ["^ ", "n", "pluginTemplate", "v", tmap]
+    first_inner = first_val[1]
     second_inner = second_val[1]
-
     _compare_tmap_keys(first_inner, second_inner, cache)
 
-    # Plugin tmap keys
-    first_tmap = first_inner[4]   # the 'v' value = plugin tmap
+    first_tmap = first_inner[4]
     second_tmap = second_inner[4]
-
     _compare_tmap_keys(first_tmap, second_tmap, cache)
 
-    # Now also process template fields from multiple plugins
-    # to capture iOM keys, template-specific keys, etc.
-    # We need to compare plugins of the same type
-    first_type = _get_field_direct(first_tmap, "type")
-
-    # Walk through all plugins to find template key cache refs
+    # Walk plugins to discover template/position type tags
     for j in range(0, len(items) - 1, 2):
         plugin_val = items[j + 1]
-        plugin_tmap = plugin_val[1][4]  # record inner -> v
+        plugin_tmap = plugin_val[1][4]
 
-        # Template value
         tmpl_raw = _get_field_resolved(plugin_tmap, "template", cache)
         if tmpl_raw and isinstance(tmpl_raw, list) and len(tmpl_raw) > 1:
             marker = tmpl_raw[0]
             if isinstance(marker, str) and _is_cache_ref(marker):
-                # This is a cached ~#iOM or ~#iM
                 if marker not in cache:
-                    # We know templates use ~#iOM or ~#iM
-                    cache[marker] = "~#iOM"  # Most common
+                    cache[marker] = "~#iOM"
 
-            # Process iOM/iM inner keys
-            if isinstance(tmpl_raw, list) and len(tmpl_raw) > 1:
-                inner_items = tmpl_raw[1]
-                if isinstance(inner_items, list):
-                    for k in range(0, len(inner_items) - 1, 2):
-                        key = inner_items[k]
-                        if isinstance(key, str) and not _is_cache_ref(key):
-                            # Full name key — any later plugin may use a cache ref
-                            pass
-
-        # Position value
         pos_raw = _get_field_resolved(plugin_tmap, "position2", cache)
         if pos_raw and isinstance(pos_raw, list) and len(pos_raw) > 1:
             marker = pos_raw[0]
@@ -127,7 +239,6 @@ def build_cache_by_comparison(app_state):
                 cache[marker] = "~#iR"
 
     # Cross-compare templates from plugins of the same subtype
-    # to discover template-internal cache refs
     subtypes_seen = {}
     for j in range(0, len(items) - 1, 2):
         plugin_val = items[j + 1]
@@ -136,11 +247,68 @@ def build_cache_by_comparison(app_state):
         if subtype and subtype not in subtypes_seen:
             subtypes_seen[subtype] = plugin_tmap
         elif subtype and subtype in subtypes_seen:
-            # Compare templates
             first_t = _get_field_resolved(subtypes_seen[subtype], "template", cache)
             second_t = _get_field_resolved(plugin_tmap, "template", cache)
             if first_t and second_t:
                 _compare_iom_keys(first_t, second_t, cache)
+
+    # --- Strategy 2: Structural inference for type tags ---
+    # Scan the ENTIRE structure to infer Transit type tags for any remaining
+    # unresolved cache refs (e.g., ^A -> ~#iL)
+    _discover_type_tag_cache_refs(app_state, cache)
+
+    # --- Strategy 3: Position sub-key discovery ---
+    _discover_position_keys(items, cache)
+
+    # --- Strategy 4: App-level field name discovery ---
+    # Some field names (like 'createdAt') are cached at the app level before
+    # plugins. Find them by comparing the first plugin's tmap against the
+    # app-level tmap keys.
+    first_plugin_tmap = first_tmap
+    start = 1 if first_plugin_tmap[0] == "^ " else 0
+    for ki in range(start, len(first_plugin_tmap) - 1, 2):
+        key = first_plugin_tmap[ki]
+        if _is_cache_ref(key) and key not in cache:
+            # This cache ref in the FIRST plugin means it was cached before
+            # plugins. Check app-level tmap for matching field names.
+            # The value next to this key might give us a hint about the field
+            val = first_plugin_tmap[ki + 1]
+            # Check if adjacent keys (before/after) in the first plugin are
+            # known, and use them to narrow down the app-level field name
+            prev_key = None
+            next_key = None
+            if ki >= start + 2:
+                pk = first_plugin_tmap[ki - 2]
+                prev_key = cache.get(pk, pk) if _is_cache_ref(pk) else pk
+            if ki + 2 < len(first_plugin_tmap):
+                nk = first_plugin_tmap[ki + 2]
+                next_key = cache.get(nk, nk) if _is_cache_ref(nk) else nk
+
+            # For 'createdAt': it appears between 'container' and 'updatedAt'
+            # We know container and updatedAt, so we can search the first
+            # plugin's full-name counterpart.
+            # Since the first plugin already uses the cache ref, we need
+            # another approach: check what full-name strings appear in the
+            # app-level structure that aren't in our cache values yet.
+            cached_values = set(cache.values())
+            app_keys = set()
+            for ai in range(0, len(pairs), 2):
+                ak = pairs[ai]
+                if isinstance(ak, str) and not _is_cache_ref(ak):
+                    app_keys.add(ak)
+            # Also check rec_inner keys
+            ri_pairs = rec_inner[1:]
+            for ai in range(0, len(ri_pairs) - 1, 2):
+                ak = ri_pairs[ai]
+                if isinstance(ak, str) and not _is_cache_ref(ak):
+                    app_keys.add(ak)
+
+            # Strings cached at app level but not yet in our cache
+            uncovered = app_keys - cached_values
+            # If value is a timestamp (~m...), it's likely 'createdAt'
+            if isinstance(val, str) and val.startswith("~m"):
+                if "createdAt" in uncovered:
+                    cache[key] = "createdAt"
 
     return cache
 
@@ -314,6 +482,49 @@ def extract_patterns(input_path):
         template = decode_structure(template_raw, cache) if template_raw else {}
         position = decode_structure(position_raw, cache) if position_raw else None
 
+        # Helper to extract event handlers from a decoded template dict
+        def _collect_events(tmpl, source_id, source_subtype, source_type):
+            if not isinstance(tmpl, dict):
+                return
+            # Widget events: template.events = list of handler dicts
+            if "events" in tmpl:
+                events = tmpl["events"]
+                if isinstance(events, list):
+                    for ev in events:
+                        if isinstance(ev, dict) and len(ev) > 0:
+                            event_patterns.append({
+                                "source_id": source_id,
+                                "source_type": source_type,
+                                "source_subtype": source_subtype,
+                                "event": ev
+                            })
+            # Query event handlers: onSuccess, onFailure, etc.
+            for handler_key in ("changeQuery", "successQuery", "failureQuery"):
+                if handler_key in tmpl:
+                    handler = tmpl[handler_key]
+                    if isinstance(handler, dict) and len(handler) > 0:
+                        event_patterns.append({
+                            "source_id": source_id,
+                            "source_type": source_type,
+                            "source_subtype": source_subtype,
+                            "handler_type": handler_key,
+                            "event": handler
+                        })
+            # Also check for event handler arrays in query templates
+            for handler_key in ("onSuccessEventHandlers", "onFailureEventHandlers"):
+                if handler_key in tmpl:
+                    handlers = tmpl[handler_key]
+                    if isinstance(handlers, list):
+                        for h in handlers:
+                            if isinstance(h, dict) and len(h) > 0:
+                                event_patterns.append({
+                                    "source_id": source_id,
+                                    "source_type": source_type,
+                                    "source_subtype": source_subtype,
+                                    "handler_type": handler_key,
+                                    "event": h
+                                })
+
         if plugin_type == "widget":
             if plugin_subtype and plugin_subtype not in widget_templates:
                 widget_templates[plugin_subtype] = {
@@ -321,17 +532,7 @@ def extract_patterns(input_path):
                     "template": template,
                     "position": position
                 }
-            # Collect event patterns
-            if isinstance(template, dict) and "events" in template:
-                events = template["events"]
-                if isinstance(events, list):
-                    for ev in events:
-                        if isinstance(ev, dict) and len(ev) > 0:
-                            event_patterns.append({
-                                "source_widget": plugin_id,
-                                "source_subtype": plugin_subtype,
-                                "event": ev
-                            })
+            _collect_events(template, plugin_id, plugin_subtype, "widget")
             if position and plugin_subtype not in position_examples:
                 position_examples[plugin_subtype] = position
 
@@ -342,6 +543,7 @@ def extract_patterns(input_path):
                     "template": template,
                     "resource_name": _get_field_resolved(plugin_tmap, "resourceDisplayName", cache)
                 }
+            _collect_events(template, plugin_id, plugin_subtype, "datasource")
 
         elif plugin_type == "state":
             if plugin_subtype and plugin_subtype not in state_templates:
@@ -372,6 +574,7 @@ def extract_patterns(input_path):
             "widget_subtypes": len(widget_templates),
             "query_subtypes": len(query_templates),
             "state_subtypes": len(state_templates),
+            "event_patterns_found": len(event_patterns),
             "cache_keys_discovered": len(cache_key_map),
             "note": "Cache keys are POSITIONAL and specific to this file. Do NOT hardcode them. Use full field names in the builder library instead."
         },

@@ -144,8 +144,8 @@ def query(id_, subtype, template, resource_uuid=None, resource_name=None, screen
     ))
 
 
-def state_var(id_, value="", persistence="none", screen="page1"):
-    """Build a state variable plugin record."""
+def state_var(id_, value="", persistence="none", screen=None):
+    """Build a state variable plugin record. screen=None for global, screen="page1" for page-scoped."""
     return record("pluginTemplate", tmap(
         "id", id_,
         "uuid", str(uuid.uuid4()),
