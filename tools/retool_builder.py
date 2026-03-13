@@ -69,12 +69,17 @@ def record(name, value):
 # ══════════════════════════════════════════════════════════════════════════════
 
 def pos(row, col, height, width, container="", screen="page1", row_group="body"):
-    """Build a position2 record for grid placement."""
+    """Build a position2 record for grid placement.
+
+    container: For widgets on the main page, use "" (empty string).
+               For widgets inside a modal/drawer/container, pass the parent frame ID
+               — it goes into 'subcontainer', NOT 'container' (per Retool export structure).
+    """
     return record("position2", tmap(
         "type", "grid",
-        "container", container,
+        "container", "",
         "rowGroup", row_group,
-        "subcontainer", "",
+        "subcontainer", container,
         "row", row,
         "col", col,
         "height", height,
@@ -144,24 +149,24 @@ def query(id_, subtype, template, resource_uuid=None, resource_name=None, screen
     ))
 
 
-def state_var(id_, value="", persistence="none", screen=None):
+def state_var(id_, value="", screen=None):
     """Build a state variable plugin record. screen=None for global, screen="page1" for page-scoped."""
     return record("pluginTemplate", tmap(
         "id", id_,
-        "uuid", str(uuid.uuid4()),
+        "uuid", None,
         "_comment", None,
         "type", "state",
-        "subtype", "StateSlot",
+        "subtype", "State",
         "namespace", None,
         "resourceName", None,
         "resourceDisplayName", None,
-        "template", tom("value", value, "persistence", persistence),
-        "style", tom(),
+        "template", tom("value", value),
+        "style", None,
         "position2", None,
         "mobilePosition2", None,
         "mobileAppPosition", None,
         "tabIndex", None,
-        "container", None,
+        "container", "",
         "createdAt", TS,
         "updatedAt", TS,
         "folder", "",
@@ -340,7 +345,7 @@ def drawer_plugin(id_, screen_id, width="medium"):
 
 def evt(event_type, src):
     """Generic event handler that runs a JavaScript src string."""
-    return tmap(
+    return tom(
         "id", str(uuid.uuid4()),
         "type", "widget",
         "waitMs", "0",
@@ -349,13 +354,13 @@ def evt(event_type, src):
         "method", "run",
         "pluginId", "",
         "targetId", None,
-        "params", tmap("src", src)
+        "params", tom("src", src)
     )
 
 
 def evt_trigger_query(event_type, query_id):
     """Event handler that triggers a named query."""
-    return tmap(
+    return tom(
         "id", str(uuid.uuid4()),
         "type", "datasource",
         "waitMs", "0",
@@ -364,13 +369,13 @@ def evt_trigger_query(event_type, query_id):
         "method", "trigger",
         "pluginId", query_id,
         "targetId", None,
-        "params", tmap()
+        "params", tom()
     )
 
 
 def evt_show_frame(event_type, frame_id):
     """Event handler that shows a modal/drawer."""
-    return tmap(
+    return tom(
         "id", str(uuid.uuid4()),
         "type", "widget",
         "waitMs", "0",
@@ -379,13 +384,13 @@ def evt_show_frame(event_type, frame_id):
         "method", "show",
         "pluginId", frame_id,
         "targetId", None,
-        "params", tmap()
+        "params", tom()
     )
 
 
 def evt_hide_frame(event_type, frame_id):
     """Event handler that hides a modal/drawer."""
-    return tmap(
+    return tom(
         "id", str(uuid.uuid4()),
         "type", "widget",
         "waitMs", "0",
@@ -394,13 +399,13 @@ def evt_hide_frame(event_type, frame_id):
         "method", "hide",
         "pluginId", frame_id,
         "targetId", None,
-        "params", tmap()
+        "params", tom()
     )
 
 
 def evt_set_var(event_type, var_id, value_expr):
     """Event handler that sets a state variable."""
-    return tmap(
+    return tom(
         "id", str(uuid.uuid4()),
         "type", "state",
         "waitMs", "0",
@@ -409,13 +414,13 @@ def evt_set_var(event_type, var_id, value_expr):
         "method", "setValue",
         "pluginId", var_id,
         "targetId", None,
-        "params", tmap("value", value_expr)
+        "params", tom("value", value_expr)
     )
 
 
 def evt_notification(event_type, notif_type="success", title="", description="", duration=4.5):
     """Event handler that shows a notification toast."""
-    return tmap(
+    return tom(
         "id", str(uuid.uuid4()),
         "type", "util",
         "waitMs", "0",
@@ -424,11 +429,13 @@ def evt_notification(event_type, notif_type="success", title="", description="",
         "method", "showNotification",
         "pluginId", "",
         "targetId", None,
-        "params", tmap(
-            "type", notif_type,
-            "title", title,
-            "description", description,
-            "duration", duration
+        "params", tom(
+            "options", tom(
+                "notificationType", notif_type,
+                "title", title,
+                "description", description,
+                "duration", duration
+            )
         )
     )
 

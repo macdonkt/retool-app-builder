@@ -106,14 +106,34 @@ If you need to modify an existing exported file (rather than building from scrat
 
 ### Type Markers
 
-| Marker | Meaning |
-|--------|---------|
-| `~#iR` | Root Record |
-| `~#iL` | List (array) |
-| `~#iOM` | Ordered Map |
-| `~#iM` | Map |
-| `~m` | Timestamp (milliseconds) |
-| `["^ ", ...]` | Transit map (flat key-value list) |
+| Marker | Python Helper | JS Decode | Has `.get()`? | Has `.toArray()`? |
+|--------|--------------|-----------|--------------|------------------|
+| `["~#iOM", [...]]` | `tom()` | OrderedMap | YES | NO |
+| `["^ ", ...]` | `tmap()` | Plain Object `{}` | **NO** | NO |
+| `["~#iL", [...]]` | `tlist()` | Transit List | YES | YES |
+| `[...]` plain | `[]` | JS Array | NO | **NO** |
+| `["~#iR", [...]]` | `record()` | Record | YES | NO |
+| `["~#iM", [...]]` | — | Map | YES | NO |
+| `~m` prefix | `TS` | Timestamp | — | — |
+
+### ⚠️ CRITICAL: Transit Type Selection Rules (Verified by Import Testing)
+
+Using the wrong Transit type causes "d.get is not a function" or "t.get(...).toArray is not a function" errors on import.
+
+**Rule 1: Event handlers MUST use `tom()`, NOT `tmap()`**
+Retool calls `.get()` on event objects. `tmap()` decodes to plain JS objects without `.get()`.
+
+**Rule 2: These fields MUST use `tlist()`** (not plain `[]`):
+- `events` — in ALL widget/query/frame templates
+- `_columnIds`, `_actionIds`, `_toolbarButtonIds`, `_groupByColumns` — in TableWidget2
+
+Plain `[]` is OK for: `columnOrdering`, `sortArray`, `selectedRows`, `newRows`, `changesetArray`, `selectedRowKeys`
+
+**Rule 3: `style` field encoding**:
+- Widgets, frames, queries, state vars → `tom()` (empty ordered map)
+- Screens → `None` (null)
+
+**Rule 4: `build_app()` requires all 44 appTemplate fields** including `rootScreen` and `version`
 
 ### appState Root Structure
 

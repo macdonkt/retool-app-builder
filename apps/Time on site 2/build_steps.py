@@ -92,7 +92,7 @@ def step3():
 
 
 def step4():
-    """Step 3 + Add button that opens a modal with a text input."""
+    """Step 3 + button that opens an EMPTY modal (no children). Tests event handlers."""
     columns = [
         table_col("id", "ID", fmt="decimal", size=60, alignment="right"),
         table_col("name", "Name", fmt="string", size=200),
@@ -112,7 +112,7 @@ def step4():
         ("page1", screen_plugin("page1", "Step 4 Test", "step-4-test", 0)),
         ("$main", frame_plugin("$main", "page1", "main")),
 
-        # Title + Add button
+        # Title + Add button (opens modal)
         ("titleText", widget("titleText", "TextWidget2",
             txt_tmpl("# Items"),
             pos(0, 0, 4, 6, "", "page1"),
@@ -133,22 +133,8 @@ def step4():
             pos(6, 0, 40, 12, "", "page1"),
             screen="page1")),
 
-        # Modal
+        # Empty modal — no children
         ("addModal", modal_plugin("addModal", "page1", size="medium")),
-        ("modalTitle", widget("modalTitle", "TextWidget2",
-            txt_tmpl("#### Add New Item"),
-            pos(0, 0, 3, 12, "addModal", "page1"),
-            container="addModal", screen="page1")),
-        ("nameInput", widget("nameInput", "TextInputWidget2",
-            textinput_tmpl("Name", "Enter item name"),
-            pos(4, 0, 7, 12, "addModal", "page1"),
-            container="addModal", screen="page1")),
-        ("cancelButton", widget("cancelButton", "ButtonWidget2",
-            btn_tmpl("Cancel", variant="outline", events=[
-                evt_hide_frame("click", "addModal"),
-            ]),
-            pos(0, 0, 5, 2, "addModal", "page1"),
-            container="addModal", screen="page1")),
     ]
     app = build_app(plugins)
     out = os.path.join(OUTPUT_DIR, "step4.json")
@@ -156,9 +142,107 @@ def step4():
     return out
 
 
+def step5():
+    """Step 4 + state variable, event chaining, modal with children.
+    Tests: state_var, evt_set_var on query success,
+           modal children (header/body/footer), evt_hide_frame, evt_notification.
+    """
+    columns = [
+        table_col("id", "ID", fmt="decimal", size=60, alignment="right"),
+        table_col("name", "Name", fmt="string", size=200),
+        table_col("price", "Price", fmt="decimal", size=100, alignment="right"),
+    ]
+
+    mock_js = """return [
+  {id: 1, name: "Wireless Mouse", price: 29.99},
+  {id: 2, name: "USB-C Hub", price: 49.99},
+  {id: 3, name: "Standing Desk Mat", price: 39.99},
+  {id: 4, name: "Mechanical Keyboard", price: 89.99},
+  {id: 5, name: "Monitor Light Bar", price: 34.99}
+]"""
+
+    plugins = [
+        # Page + frame
+        ("page1", screen_plugin("page1", "Step 5 Test", "step-5-test", 0)),
+        ("$main", frame_plugin("$main", "page1", "main")),
+
+        # State variable — item count
+        ("itemCount", state_var("itemCount", value="0")),
+
+        # Title shows dynamic count
+        ("titleText", widget("titleText", "TextWidget2",
+            txt_tmpl("# Items ({{ itemCount.value }})"),
+            pos(0, 0, 4, 6, "", "page1"),
+            screen="page1")),
+
+        # Add button — opens modal
+        ("addButton", widget("addButton", "ButtonWidget2",
+            btn_tmpl("+ Add Item", events=[
+                evt_show_frame("click", "addModal"),
+            ]),
+            pos(0, 8, 5, 2, "", "page1"),
+            screen="page1")),
+
+        # Query: fetch items, onSuccess → set itemCount via event handler
+        ("fetchItems", query("fetchItems", "JavascriptQuery",
+            js_tmpl(mock_js, run_on_load=True, events=[
+                evt_set_var("success", "itemCount", "{{ fetchItems.data.length }}"),
+            ]),
+            screen="page1")),
+
+        # Table
+        ("itemsTable", widget("itemsTable", "TableWidget2",
+            table_tmpl("{{ fetchItems.data }}", columns=columns),
+            pos(6, 0, 40, 12, "", "page1"),
+            screen="page1")),
+
+        # Modal frame
+        ("addModal", modal_plugin("addModal", "page1", size="medium")),
+
+        # Modal header: title
+        ("modalTitle", widget("modalTitle", "TextWidget2",
+            txt_tmpl("#### Add New Item"),
+            pos(0, 0, 3, 12, "addModal", "page1", row_group="header"),
+            screen="page1")),
+
+        # Modal body: name input
+        ("nameInput", widget("nameInput", "TextInputWidget2",
+            textinput_tmpl("Name", "Enter item name"),
+            pos(0, 0, 7, 6, "addModal", "page1", row_group="body"),
+            screen="page1")),
+
+        # Modal body: price input
+        ("priceInput", widget("priceInput", "TextInputWidget2",
+            textinput_tmpl("Price", "0.00"),
+            pos(0, 6, 7, 6, "addModal", "page1", row_group="body"),
+            screen="page1")),
+
+        # Modal footer: cancel button
+        ("cancelButton", widget("cancelButton", "ButtonWidget2",
+            btn_tmpl("Cancel", variant="outline", events=[
+                evt_hide_frame("click", "addModal"),
+            ]),
+            pos(0, 0, 5, 2, "addModal", "page1", row_group="footer"),
+            screen="page1")),
+
+        # Modal footer: save button (shows notification + hides modal)
+        ("saveButton", widget("saveButton", "ButtonWidget2",
+            btn_tmpl("Save", events=[
+                evt_notification("click", "success", "Item saved", "The item was added successfully."),
+                evt_hide_frame("click", "addModal"),
+            ]),
+            pos(0, 2, 5, 2, "addModal", "page1", row_group="footer"),
+            screen="page1")),
+    ]
+    app = build_app(plugins)
+    out = os.path.join(OUTPUT_DIR, "step5.json")
+    save_app(app, out, "Step 5 Test")
+    return out
+
+
 if __name__ == "__main__":
     step = sys.argv[1] if len(sys.argv) > 1 else "1"
-    steps = {"1": step1, "2": step2, "3": step3, "4": step4}
+    steps = {"1": step1, "2": step2, "3": step3, "4": step4, "5": step5}
     if step in steps:
         path = steps[step]()
         print(f"\nBuilt step {step}: {path}")
