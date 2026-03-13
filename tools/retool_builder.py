@@ -121,11 +121,19 @@ def widget(id_, subtype, template, position2, container="", screen="page1"):
     ))
 
 
-def query(id_, subtype, template, resource_uuid=None, resource_name=None, screen="page1"):
-    """Build a query (datasource) plugin record."""
+def query(id_, subtype, template, resource_uuid=None, resource_name=None, screen=None):
+    """Build a query (datasource) plugin record.
+
+    For JS queries: resource_uuid/resource_name auto-set to "JavascriptQuery"/None.
+    For SQL queries: pass resource_uuid=<DB UUID>, resource_name="retool_db".
+    screen=None for global queries, screen="page1" for page-scoped.
+    """
+    # JS queries have a special resourceName convention
+    if subtype == "JavascriptQuery" and resource_uuid is None:
+        resource_uuid = "JavascriptQuery"
     return record("pluginTemplate", tmap(
         "id", id_,
-        "uuid", str(uuid.uuid4()),
+        "uuid", None,
         "_comment", None,
         "type", "datasource",
         "subtype", subtype,
@@ -133,12 +141,12 @@ def query(id_, subtype, template, resource_uuid=None, resource_name=None, screen
         "resourceName", resource_uuid,
         "resourceDisplayName", resource_name,
         "template", template,
-        "style", tom(),
+        "style", None,
         "position2", None,
         "mobilePosition2", None,
         "mobileAppPosition", None,
         "tabIndex", None,
-        "container", None,
+        "container", "",
         "createdAt", TS,
         "updatedAt", TS,
         "folder", "",
@@ -1160,6 +1168,7 @@ def sql_tmpl(sql, run_on_load=False, success_msg="", events=None):
         "playgroundQuerySaveId", "latest",
         "workflowParams", None,
         "resourceNameOverride", "",
+        "agentQueryMode", None,
         "runWhenModelUpdates", run_on_load,
         "workflowRunExecutionType", "sync",
         "showFailureToaster", True,
@@ -1170,6 +1179,7 @@ def sql_tmpl(sql, run_on_load=False, success_msg="", events=None):
         "workflowRunBodyType", "raw",
         "privateParams", tlist([]),
         "queryRunOnSelectorUpdate", False,
+        "agentWorkflowRunMode", "async",
         "runWhenPageLoadsDelay", "",
         "warningCodes", tlist([]),
         "data", None,
@@ -1213,6 +1223,7 @@ def sql_tmpl(sql, run_on_load=False, success_msg="", events=None):
         "runWhenPageLoads", run_on_load,
         "transformer", "return data",
         "events", tlist(events or []),
+        "agentGuiMode", None,
         "tableName", "",
         "queryTimeout", "10000",
         "workflowId", None,
